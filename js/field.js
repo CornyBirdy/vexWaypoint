@@ -2,8 +2,7 @@
  * VEX V5 Override field - visual only, nothing here affects the robot.
  *
  * Inches, origin at field centre, +X right, +Y up the screen. Red alliance
- * station on the left, blue on the right (as in the manual's field setup
- * figure). Positions were read off that figure (6 tiles of 24 in, so the
+ * side on the left, blue on the right (as in the manual's field setup figure). Positions were read off that figure (6 tiles of 24 in, so the
  * playfield is -72..72); they are good to roughly an inch.
  *
  * Everything is plain data below. If something is off, change the numbers.
@@ -52,9 +51,6 @@
     { wall: 'left', x: -HALF, y: 0 },
     { wall: 'right', x: HALF, y: 0 },
   ];
-
-  // ---- alliance stations (outside the field, red left / blue right)
-  const STATION = { wallX: 82, halfH: 56.6, armTo: 117 };
 
   // ---- game elements
   // cup: {type:'cup', side:'gray'|'clear'}   standing pin: {type:'pin', color}   lying pin: {type:'pin', deg, color}
@@ -105,16 +101,7 @@
     pin(x, y, c);
   });
 
-  // match loads and preloads waiting in each alliance station
-  [[-1, 'red'], [1, 'blue']].forEach(([s, team]) => {
-    for (let i = 0; i < 10; i++) cup(s * 97, -13.95 + i * 3.1, 'gray');
-    for (let i = 0; i < 12; i++) pin(s * 92.2, -14.85 + i * 2.7, team);
-    pin(s * 88.3, 0, 'yellow');
-    pin(s * 88.3, 47.2, team);
-    pin(s * 88.3, -47.2, team);
-  });
-
   Object.assign(NS, {
-    FIELD: { HALF, TILE, GOALS, DIAMOND_R, DIAGONAL_FROM, DIAGONAL_TO, BOX, LOADERS, TOGGLES, STATION, ELEMENTS },
+    FIELD: { HALF, TILE, GOALS, DIAMOND_R, DIAGONAL_FROM, DIAGONAL_TO, BOX, LOADERS, TOGGLES, ELEMENTS },
   });
 })();

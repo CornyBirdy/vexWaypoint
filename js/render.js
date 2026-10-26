@@ -4,8 +4,8 @@
   const NS = (globalThis.VSim = globalThis.VSim || {});
   const F = NS.FIELD;
 
-  // visible world: the field plus a strip of each alliance station
-  const VIEW_W = 210;
+  // visible world: the field plus a small border
+  const VIEW_W = 160;
   const VIEW_H = 160;
   NS.VIEW_ASPECT = VIEW_W / VIEW_H;
 
@@ -70,7 +70,6 @@
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       ctx.fillStyle = C.bg;
       ctx.fillRect(0, 0, this.w, this.h);
-      this.drawStations(ctx);
       this.drawField(ctx);
       this.drawMarkings(ctx);
       this.drawElements(ctx);
@@ -151,18 +150,6 @@
         this.line(ctx, sx * a - d, sy * a - d, sx * b - d, sy * b - d, C.tape, 0.45);
       });
       [[1, 1], [-1, -1]].forEach(([sx, sy]) => this.line(ctx, sx * a, sy * a, sx * b, sy * b, C.tape, 0.6));
-    }
-
-    drawStations(ctx) {
-      const st = F.STATION;
-      [-1, 1].forEach((s) => {
-        const color = s < 0 ? C.red : C.blue;
-        const w = 1.8;
-        // "]" bracket: vertical at the field side, arms running away from the field
-        this.line(ctx, s * st.wallX, -st.halfH - w / 2, s * st.wallX, st.halfH + w / 2, color, w);
-        this.line(ctx, s * st.wallX + (s < 0 ? w / 2 : -w / 2), st.halfH, s * st.armTo, st.halfH, color, w);
-        this.line(ctx, s * st.wallX + (s < 0 ? w / 2 : -w / 2), -st.halfH, s * st.armTo, -st.halfH, color, w);
-      });
     }
 
     // ---------------------------------------------------------- elements
