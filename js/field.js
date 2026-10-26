@@ -1,62 +1,120 @@
 /*
- * VEX V5 Override field. Visual only - nothing here affects the robot.
+ * VEX V5 Override field - visual only, nothing here affects the robot.
  *
- * Inches, origin at field centre, +X right, +Y up the screen.
+ * Inches, origin at field centre, +X right, +Y up the screen. Red alliance
+ * station on the left, blue on the right (as in the manual's field setup
+ * figure). Positions were read off that figure (6 tiles of 24 in, so the
+ * playfield is -72..72); they are good to roughly an inch.
  *
- * Taken from the game manual text: 12 ft x 12 ft, 9 goals (1 tall neutral in
- * the centre, 4 neutral short, 2 red + 2 blue alliance), each outer goal 1 tile
- * from one wall and 2 tiles from another, one loader in each corner, one
- * toggle on top of each wall centre.
- *
- * NOT taken from the manual (fill in from Appendix A / the field figures):
- *   - goal diameters (GOAL_RADIUS is a rough stand-in)
- *   - which outer goal in each quadrant is the alliance goal
- *   - exact loader position and size
- *   - where the 56 cups and 63 pins start (ELEMENTS is intentionally empty)
- *
- * ELEMENTS entries: { type: 'pin' | 'cup', color: 'red' | 'blue' | 'yellow' | 'gray' | 'clear', x, y }
+ * Everything is plain data below. If something is off, change the numbers.
  */
 (function () {
   'use strict';
   const NS = (globalThis.VSim = globalThis.VSim || {});
 
-  const TILE = 24;
   const HALF = 72;
+  const TILE = 24;
 
+  // ---- goals: 1 tile from one wall, 2 tiles from another. size = flat-to-flat width
   const GOALS = [
-    { x: 0, y: 0, kind: 'tall', team: 'neutral' },
-    // bottom quadrant
-    { x: 24, y: -48, kind: 'alliance', team: 'red' },
-    { x: -24, y: -48, kind: 'short', team: 'neutral' },
-    // left quadrant
-    { x: -48, y: -24, kind: 'alliance', team: 'red' },
-    { x: -48, y: 24, kind: 'short', team: 'neutral' },
-    // top quadrant
-    { x: -24, y: 48, kind: 'alliance', team: 'blue' },
-    { x: 24, y: 48, kind: 'short', team: 'neutral' },
-    // right quadrant
-    { x: 48, y: 24, kind: 'alliance', team: 'blue' },
-    { x: 48, y: -24, kind: 'short', team: 'neutral' },
+    { x: 0, y: 0, kind: 'tall', team: 'neutral', size: 7.2 },
+    // neutral short goals (upper-left, lower-right)
+    { x: -24, y: 48, kind: 'short', team: 'neutral', size: 6.2 },
+    { x: -48, y: 24, kind: 'short', team: 'neutral', size: 6.2 },
+    { x: 48, y: -24, kind: 'short', team: 'neutral', size: 6.2 },
+    { x: 24, y: -48, kind: 'short', team: 'neutral', size: 6.2 },
+    // red alliance goals (lower-left)
+    { x: -48, y: -24, kind: 'alliance', team: 'red', size: 6.2 },
+    { x: -24, y: -48, kind: 'alliance', team: 'red', size: 6.2 },
+    // blue alliance goals (upper-right)
+    { x: 24, y: 48, kind: 'alliance', team: 'blue', size: 6.2 },
+    { x: 48, y: 24, kind: 'alliance', team: 'blue', size: 6.2 },
   ];
-  const GOAL_RADIUS = { tall: 6, short: 4.5, alliance: 4 };
 
+  // ---- floor markings (white tape)
+  const DIAMOND_R = 24; // |x| + |y| = 24
+  const DIAGONAL_FROM = 58.7; // diagonals run from the corner boxes in to the diamond
+  const DIAGONAL_TO = 12;
+  const BOX = { x: 58.7, y: 45.9 }; // corner L-box: from the wall to x=58.7 and y=45.9
+
+  // ---- loaders sit on the alliance walls, 12 in from each corner
   const LOADERS = [
-    { x: -HALF + 3, y: -HALF + 3 },
-    { x: HALF - 3, y: -HALF + 3 },
-    { x: -HALF + 3, y: HALF - 3 },
-    { x: HALF - 3, y: HALF - 3 },
+    { x: -70.6, y: 60, team: 'red' },
+    { x: -70.6, y: -60, team: 'red' },
+    { x: 70.6, y: 60, team: 'blue' },
+    { x: 70.6, y: -60, team: 'blue' },
   ];
 
+  // ---- toggles: yellow bar on top of each wall centre, ~26 in long
   const TOGGLES = [
+    { wall: 'top', x: 0, y: HALF },
     { wall: 'bottom', x: 0, y: -HALF },
     { wall: 'left', x: -HALF, y: 0 },
-    { wall: 'top', x: 0, y: HALF },
     { wall: 'right', x: HALF, y: 0 },
   ];
 
+  // ---- alliance stations (outside the field, red left / blue right)
+  const STATION = { wallX: 82, halfH: 56.6, armTo: 117 };
+
+  // ---- game elements
+  // cup: {type:'cup', side:'gray'|'clear'}   standing pin: {type:'pin', color}   lying pin: {type:'pin', deg, color}
   const ELEMENTS = [];
+  const cup = (x, y, side) => ELEMENTS.push({ type: 'cup', x, y, side });
+  const pin = (x, y, color) => ELEMENTS.push({ type: 'pin', x, y, color });
+  const lying = (x, y, deg, color) => ELEMENTS.push({ type: 'pin', x, y, deg, color });
+
+  // three cups in a row against each wall, yellow pin standing in the middle one
+  const WALL_GAP = 3.3;
+  [-1, 1].forEach((a) => {
+    [-1, 1].forEach((b) => {
+      // top / bottom walls
+      const cx = 24 * a;
+      const cy = 69.3 * b;
+      cup(cx - WALL_GAP, cy, 'gray');
+      cup(cx, cy, 'clear');
+      pin(cx, cy, 'yellow');
+      cup(cx + WALL_GAP, cy, 'gray');
+      // left / right walls
+      const wx = 69.3 * a;
+      const wy = 24 * b;
+      cup(wx, wy - WALL_GAP, 'gray');
+      cup(wx, wy, 'clear');
+      pin(wx, wy, 'yellow');
+      cup(wx, wy + WALL_GAP, 'gray');
+    });
+  });
+
+  // starbursts: a gray cup with four lying pins (blue up/right, red left/down), on the TL-BR diagonal
+  [[-48, 48], [-24, 24], [24, -24], [48, -48]].forEach(([x, y]) => {
+    cup(x, y, 'gray');
+    lying(x, y, 0, 'blue');
+    lying(x, y, 90, 'blue');
+    lying(x, y, 180, 'red');
+    lying(x, y, 270, 'red');
+  });
+
+  // single yellow pin in a clear cup, on the other diagonal
+  [[-48, -48], [-24, -24], [24, 24], [48, 48]].forEach(([x, y]) => {
+    cup(x, y, 'clear');
+    pin(x, y, 'yellow');
+  });
+
+  // red / blue pins at the diamond points
+  [[0, 24, 'blue'], [24, 0, 'blue'], [0, -24, 'red'], [-24, 0, 'red']].forEach(([x, y, c]) => {
+    cup(x, y, 'gray');
+    pin(x, y, c);
+  });
+
+  // match loads and preloads waiting in each alliance station
+  [[-1, 'red'], [1, 'blue']].forEach(([s, team]) => {
+    for (let i = 0; i < 10; i++) cup(s * 97, -13.95 + i * 3.1, 'gray');
+    for (let i = 0; i < 12; i++) pin(s * 92.2, -14.85 + i * 2.7, team);
+    pin(s * 88.3, 0, 'yellow');
+    pin(s * 88.3, 47.2, team);
+    pin(s * 88.3, -47.2, team);
+  });
 
   Object.assign(NS, {
-    FIELD: { TILE, HALF, GOALS, GOAL_RADIUS, LOADERS, TOGGLES, ELEMENTS },
+    FIELD: { HALF, TILE, GOALS, DIAMOND_R, DIAGONAL_FROM, DIAGONAL_TO, BOX, LOADERS, TOGGLES, STATION, ELEMENTS },
   });
 })();

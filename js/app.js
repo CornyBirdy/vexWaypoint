@@ -486,7 +486,7 @@
 
     const pos = (e) => {
       const r = cv.getBoundingClientRect();
-      return renderer.toWorld(((e.clientX - r.left) / r.width) * renderer.size, ((e.clientY - r.top) / r.height) * renderer.size);
+      return renderer.toWorld(((e.clientX - r.left) / r.width) * renderer.w, ((e.clientY - r.top) / r.height) * renderer.h);
     };
     const hitRobot = (w) => {
       const dx = w.x - S.start.x;
