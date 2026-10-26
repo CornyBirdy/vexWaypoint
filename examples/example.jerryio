@@ -1,0 +1,59 @@
+{
+  "appVersion": "0.7.0",
+  "format": "LemLib v0.5 (inch)",
+  "uid": "example-project",
+  "gc": {
+    "robotWidth": 12,
+    "robotHeight": 12,
+    "robotIsHolonomic": false,
+    "showRobot": true,
+    "pointDensity": 2,
+    "controlMagnetDistance": 5.7
+  },
+  "paths": [
+    {
+      "name": "Path 1",
+      "uid": "example-path",
+      "visible": true,
+      "lock": false,
+      "pc": {
+        "speedLimit": {
+          "minLimit": {
+            "value": 20,
+            "label": "20"
+          },
+          "topLimit": {
+            "value": 100,
+            "label": "100"
+          }
+        },
+        "bentRate": {
+          "value": 0.1,
+          "label": "0.1"
+        }
+      },
+      "segments": [
+        {
+          "controls": [
+            {
+              "x": -36,
+              "y": -36
+            },
+            {
+              "x": -18,
+              "y": -36
+            },
+            {
+              "x": -30,
+              "y": -14
+            },
+            {
+              "x": -12,
+              "y": -12
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

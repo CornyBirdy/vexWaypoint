@@ -1,0 +1,21 @@
+{
+  "name": "VEX Auton Sim",
+  "category": "VEX",
+  "autostart": false,
+  "setup": "setup.bat",
+  "update": "git pull",
+  "rebuild": false,
+  "processes": [
+    {
+      "name": "Sim",
+      "command": "run-sim.bat",
+      "args": "",
+      "dir": ".",
+      "port": 8137,
+      "portEnv": "SIM_PORT",
+      "managed": true,
+      "stop": "",
+      "links": [{ "label": "Open sim", "path": "/" }]
+    }
+  ]
+}

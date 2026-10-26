@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VEX Auton Sim</title>
+<meta name="description" content="Drivetrain-only LemLib autonomous simulator for the VEX V5 Override field. Loads path.jerryio files.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23101418'/%3E%3Crect x='9' y='7' width='14' height='18' rx='2' fill='%2319c3a6'/%3E%3Cpath d='M16 3l4 6h-8z' fill='%23ffd166'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="logo" aria-hidden="true"></span>
+    <h1>VEX Auton Sim <small>Override &middot; LemLib drivetrain</small></h1>
+  </div>
+  <div class="top-actions">
+    <label class="check"><input type="checkbox" id="autoRun" checked> Re-run when settings change</label>
+    <button id="btnExample" class="btn ghost" type="button" title="Replace the code and paths with the built-in example">Load example</button>
+    <button id="btnRun" class="btn primary" type="button" title="Ctrl + Enter">&#9654; Run auton</button>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="stage" aria-label="Field">
+    <div class="canvas-wrap">
+      <canvas id="field" aria-label="Override field with the simulated robot"></canvas>
+      <div class="hud" id="hud" aria-live="off">
+        <div><span class="k">time</span> <b id="tTime">0.00</b> s <span id="tLimit" class="badge"></span></div>
+        <div><span class="k">field</span> <span id="tField">-</span></div>
+        <div><span class="k">code</span> <span id="tCode">-</span></div>
+        <div><span class="k">speed</span> <span id="tSpeed">-</span></div>
+        <div class="motion" id="tMotion">&nbsp;</div>
+      </div>
+    </div>
+
+    <div class="transport">
+      <button id="btnRestart" class="btn icon" type="button" title="Restart (Home)" aria-label="Restart">&#9198;</button>
+      <button id="btnPlay" class="btn icon primary" type="button" title="Play / pause (Space)" aria-label="Play or pause">&#9654;</button>
+      <input id="scrub" type="range" min="0" max="1000" value="0" step="10" aria-label="Timeline">
+      <select id="speed" aria-label="Playback speed">
+        <option value="0.25">0.25&times;</option>
+        <option value="0.5">0.5&times;</option>
+        <option value="1" selected>1&times;</option>
+        <option value="2">2&times;</option>
+        <option value="4">4&times;</option>
+      </select>
+    </div>
+    <div class="readout" id="cursor">Hover the field to read coordinates. Drag the dashed start robot to move it; drag its yellow handle to turn it.</div>
+
+    <div class="viewopts">
+      <label class="check"><input type="checkbox" id="optTrail" checked> Trail</label>
+      <label class="check"><input type="checkbox" id="optPaths" checked> Path files</label>
+      <label class="check"><input type="checkbox" id="optAxes" checked> Code axes (0,0,0)</label>
+      <label class="check"><input type="checkbox" id="optAim" checked> Target marker</label>
+    </div>
+
+    <details class="card" open>
+      <summary>Run log</summary>
+      <div id="log" class="log" role="log"></div>
+    </details>
+  </section>
+
+  <aside class="panel" aria-label="Settings">
+    <details class="card" open>
+      <summary>Start pose <span class="hint">where the robot sits on the field</span></summary>
+      <div class="grid" id="formStart"></div>
+      <p class="note">In your code, <code>0, 0, 0</code> is this pose: <b>+y</b> is straight ahead of the robot, <b>+x</b> is to its right, heading <b>0&deg;</b> is its starting direction. A <code>chassis.setPose(...)</code> in the code re-anchors it.</p>
+    </details>
+
+    <details class="card" open>
+      <summary>Drivetrain <span class="hint" id="topSpeed"></span></summary>
+      <div class="grid" id="formDrive"></div>
+    </details>
+
+    <details class="card" open>
+      <summary>Path files <span class="hint">path.jerryio</span></summary>
+      <div class="dropzone" id="drop" tabindex="0">
+        <input type="file" id="fileInput" multiple accept=".txt,.jerryio,.json,.csv,.path">
+        <span>Drop <b>.txt</b> (LemLib export) or <b>.jerryio</b> files here, or <button class="link" id="btnBrowse" type="button">browse</button></span>
+      </div>
+      <ul class="paths" id="pathList"></ul>
+      <label class="field wide">
+        <span>Path coordinates mean</span>
+        <select id="pathMode"></select>
+      </label>
+      <p class="note" id="pathModeNote"></p>
+    </details>
+
+    <details class="card" open>
+      <summary>Auton code <span class="hint">Ctrl + Enter to run</span></summary>
+      <div class="row">
+        <label class="field"><span>Language</span>
+          <select id="lang"><option value="cpp">C++ (LemLib)</option><option value="js">JavaScript</option></select>
+        </label>
+        <label class="field" id="routineWrap" hidden><span>Routine</span>
+          <select id="routine"></select>
+        </label>
+        <label class="field"><span>Match length</span>
+          <select id="autonLimit"><option value="15">15 s auton</option><option value="60">60 s skills</option></select>
+        </label>
+      </div>
+      <textarea id="code" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Autonomous code"></textarea>
+      <div class="row">
+        <button id="btnImport" class="btn ghost" type="button" title="Read the lemlib::Drivetrain and ControllerSettings lines in your code and copy their numbers into the settings">Import drivetrain &amp; gains from code</button>
+      </div>
+      <p class="note">Only the drivetrain is simulated. Calls to anything else (intake, lift, clamp, &hellip;) are ignored.</p>
+    </details>
+
+    <details class="card">
+      <summary>LemLib tuning <span class="hint">PID, exit conditions, slew</span></summary>
+      <div class="tuning">
+        <h3>Lateral controller</h3><div class="grid" id="formLat"></div>
+        <h3>Angular controller</h3><div class="grid" id="formAng"></div>
+      </div>
+    </details>
+
+    <div class="foot">
+      <button id="btnReset" class="btn ghost" type="button">Reset settings</button>
+    </div>
+  </aside>
+</main>
+
+<script src="js/lemlib.js"></script>
+<script src="js/paths.js"></script>
+<script src="js/translate.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/field.js"></script>
+<script src="js/render.js"></script>
+<script src="js/examples.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

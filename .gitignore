@@ -1,0 +1,13 @@
+# python
+__pycache__/
+*.pyc
+
+# machine-specific / secrets
+.env
+.env.*
+*.log
+
+# tooling
+node_modules/
+.DS_Store
+Thumbs.db

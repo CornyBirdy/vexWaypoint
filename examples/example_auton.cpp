@@ -1,0 +1,24 @@
+#include "main.h"
+
+// Path exported from path.jerryio. Drop example.txt onto the sim and this
+// name (file name with the dot turned into _) becomes available.
+ASSET(example_txt)
+
+void autonomous() {
+    // 0, 0, 0 is wherever the start pose is set in the sim
+    chassis.setPose(0, 0, 0);
+
+    chassis.moveToPoint(0, 24, 3000);               // drive forward 24 in
+    chassis.turnToHeading(90, 1500);                // face right
+    chassis.moveToPose(24, 24, 90, 3000, {.lead = 0.5});
+    chassis.waitUntilDone();
+
+    // follow a jerry.io path: lookahead 15 in, 4 s timeout
+    chassis.follow(example_txt, 15, 4000);
+    chassis.waitUntilDone();
+
+    chassis.turnToPoint(0, 0, 1000);                // look at the centre goal
+    chassis.swingToHeading(180, lemlib::DriveSide::LEFT, 1500);
+    chassis.moveToPoint(24, 48, 3000, {.forwards = false, .maxSpeed = 80});
+    chassis.waitUntilDone();
+}
