@@ -62,14 +62,14 @@
   }
 
   const PATH_MODES = [
-    ['field', 'Field coordinates (as drawn in jerry.io)'],
-    ['relative', 'Shifted so the path starts at the robot'],
-    ['code', 'Code coordinates (same frame as 0, 0, 0)'],
+    ['field', 'Field (as drawn)'],
+    ['relative', 'Start at robot'],
+    ['code', 'Code frame'],
   ];
   const PATH_MODE_NOTES = {
-    field: 'The path sits on the field exactly as drawn in jerry.io (origin = field centre). The sim converts it into the code frame for you, so it works whatever start pose you pick.',
-    relative: 'The path keeps its drawn shape and direction, but is slid so its first point lies on the robot when <code>follow()</code> starts.',
-    code: 'The numbers in the file are used as-is in the odometry frame, like on a real robot that never rebased them. Path point (0, 0) is the start pose.',
+    field: 'File coordinates are jerry.io field coordinates (origin at field centre). They are converted into the code frame, so the start pose can be anywhere.',
+    relative: 'Path keeps its shape and direction but is moved so its first point is on the robot when <code>follow()</code> starts.',
+    code: 'File numbers are used as-is in the code frame. Path point (0, 0) is the start pose.',
   };
 
   function buildForms() {
@@ -122,7 +122,7 @@
   function updateTopSpeed() {
     const r = S.robot;
     const v = ((r.rpm / 60) * Math.PI * r.wheelDiameter * r.speedPct) / 100;
-    $('topSpeed').textContent = `top speed ${v.toFixed(1)} in/s (${(v / 12).toFixed(2)} ft/s)`;
+    $('topSpeed').textContent = `max ${v.toFixed(1)} in/s`;
   }
 
   // ------------------------------------------------------------------ persistence
@@ -187,7 +187,7 @@
         <button class="x" type="button" title="Remove" aria-label="Remove ${esc(p.name)}">&times;</button>`;
       li.querySelector('.id').addEventListener('click', () => {
         if (navigator.clipboard) navigator.clipboard.writeText(p.id).catch(() => {});
-        $('cursor').textContent = `Use it in code:  chassis.follow(${p.id}, 15, 4000);`;
+        $('cursor').textContent = `chassis.follow(${p.id}, 15, 4000);`;
       });
       li.querySelector('select').addEventListener('change', (e) => {
         p.unitOverride = e.target.value;
@@ -269,7 +269,7 @@
       const logLines = [];
       c.warnings.forEach((w) => logLines.push(['warn', w]));
       const missing = c.config.assets.filter((a) => !paths.some((p) => p.id === a || p.aliases.includes(a)));
-      missing.forEach((a) => logLines.push(['warn', `ASSET(${a}) has no matching path file loaded. Drop the file onto the sim (its name becomes ${a}).`]));
+      missing.forEach((a) => logLines.push(['warn', `ASSET(${a}): no matching path file loaded`]));
 
       const res = await V.runSimulation({
         js: c.js,
@@ -351,17 +351,17 @@
     const b = $('tLimit');
     if (!result || !result.frames) {
       b.textContent = '';
-      b.className = 'badge';
+      b.className = 'lim';
       return;
     }
     const limit = S.autonLimit * 1000;
     const diff = (limit - result.durationMs) / 1000;
     if (diff >= 0) {
       b.textContent = `${diff.toFixed(1)} s spare`;
-      b.className = 'badge ok';
+      b.className = 'lim ok';
     } else {
-      b.textContent = `${(-diff).toFixed(1)} s over ${S.autonLimit} s`;
-      b.className = 'badge over';
+      b.textContent = `${(-diff).toFixed(1)} s over the ${S.autonLimit} s limit`;
+      b.className = 'lim over';
     }
   }
 
@@ -407,7 +407,7 @@
   }
 
   function syncPlayButton() {
-    $('btnPlay').innerHTML = playing ? '&#10074;&#10074;' : '&#9654;';
+    $('btnPlay').textContent = playing ? 'Pause' : 'Play';
   }
 
   let lastActiveMotion = -2;
@@ -458,7 +458,7 @@
       $('tField').textContent = `${S.start.x.toFixed(1)}, ${S.start.y.toFixed(1)}  ${S.start.h.toFixed(0)}°`;
       $('tCode').textContent = '0.0, 0.0  0°';
       $('tSpeed').textContent = '-';
-      $('tMotion').innerHTML = '&nbsp;';
+      $('tMotion').textContent = '-';
       return;
     }
     $('tTime').textContent = (f.t[idx] / 1000).toFixed(2);
@@ -467,7 +467,7 @@
     const v = (f.vl[idx] + f.vr[idx]) / 2;
     $('tSpeed').textContent = `${v.toFixed(1)} in/s  (L ${f.vl[idx].toFixed(0)}, R ${f.vr[idx].toFixed(0)})`;
     const m = mi >= 0 ? result.motions[mi] : null;
-    $('tMotion').textContent = m ? m.label : 'idle';
+    $('tMotion').textContent = m ? m.label : '-';
     if (mi !== lastActiveMotion) {
       lastActiveMotion = mi;
       document.querySelectorAll('#log .motion').forEach((d) => {
@@ -533,7 +533,7 @@
       const inField = Math.abs(w.x) <= 72 && Math.abs(w.y) <= 72;
       if (inField) {
         const c = fieldToCode(w.x, w.y);
-        $('cursor').textContent = `field (${w.x.toFixed(1)}, ${w.y.toFixed(1)})   code (${c.x.toFixed(1)}, ${c.y.toFixed(1)})`;
+        $('cursor').textContent = `field ${w.x.toFixed(1)}, ${w.y.toFixed(1)}   code ${c.x.toFixed(1)}, ${c.y.toFixed(1)}`;
       }
       cv.style.cursor = drag ? 'grabbing' : handleHit(w) ? 'grab' : hitRobot(w).inside ? 'move' : 'crosshair';
     });
@@ -568,10 +568,10 @@
       notes.push(`${k} gains`);
     });
     if (!notes.length) {
-      addLog('warn', 'Nothing to import: no lemlib::Drivetrain / lemlib::ControllerSettings declarations found in the code box.');
+      addLog('warn', 'Nothing to import: no lemlib::Drivetrain or lemlib::ControllerSettings found in the code.');
       return;
     }
-    addLog('info', 'Imported from code: ' + notes.join(', '));
+    addLog('info', 'Imported: ' + notes.join(', '));
     pushSettingsToUi();
     settingsChanged();
   }

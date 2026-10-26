@@ -1,24 +1,26 @@
-/* Canvas renderer: field, game elements (visual only), paths, trail and robot. */
+/* Canvas renderer: field, goals, paths, trail and robot. */
 (function () {
   'use strict';
   const NS = (globalThis.VSim = globalThis.VSim || {});
   const F = NS.FIELD;
-  const MARGIN = 9; // inches of border drawn around the 144 in field
+  const MARGIN = 8; // inches of border drawn around the 144 in field
 
-  const COLORS = {
-    mat: '#4a5058',
-    tileLine: '#5d646d',
-    tileAlt: '#51575f',
-    wall: '#14171b',
-    wallEdge: '#2a2f36',
-    red: '#e5484d',
-    blue: '#3e7bfa',
-    neutral: '#c9ccd2',
-    yellow: '#f5c518',
-    robot: '#19c3a6',
-    robotHit: '#ff8a3d',
-    ghost: 'rgba(255,255,255,0.55)',
-    trail: 'rgba(25,195,166,0.75)',
+  const C = {
+    border: '#17191c',
+    tileA: '#74787f',
+    tileB: '#6d7178',
+    line: '#5c6068',
+    wall: '#101113',
+    red: '#c8423f',
+    blue: '#3a6fc4',
+    neutral: '#d4d6da',
+    yellow: '#e0b92b',
+    gray: '#9a9ea5',
+    clear: '#e9ebee',
+    robot: '#2f8f83',
+    hit: '#d9822b',
+    trail: '#1f6f66',
+    guide: '#f2c230',
   };
 
   class Renderer {
@@ -40,7 +42,6 @@
       this.scale = css / (F.HALF * 2 + MARGIN * 2);
     }
 
-    // world (inches) <-> css pixels
     wx(x) {
       return (x + F.HALF + MARGIN) * this.scale;
     }
@@ -61,8 +62,8 @@
       this.drawElements(ctx);
       this.drawGoals(ctx);
       if (s.paths) this.drawPaths(ctx, s.paths);
-      if (s.followPath) this.drawPolyline(ctx, s.followPath, '#ffd166', 3, false);
-      if (s.trail && s.trail.length > 1) this.drawPolyline(ctx, s.trail, COLORS.trail, 2.5, false);
+      if (s.followPath) this.drawPolyline(ctx, s.followPath, C.guide, 2.5, false);
+      if (s.trail && s.trail.length > 1) this.drawPolyline(ctx, s.trail, C.trail, 2, false);
       if (s.ghost) this.drawRobot(ctx, s.ghost, s.robot, { ghost: true, handle: s.ghostHandle });
       if (s.aim && isFinite(s.aim.x)) this.drawAim(ctx, s.aim);
       if (s.pose) this.drawRobot(ctx, s.pose, s.robot, { hit: s.hit });
@@ -74,85 +75,53 @@
       const x0 = this.wx(-F.HALF);
       const y0 = this.wy(F.HALF);
       const size = F.HALF * 2 * S;
-      // border / perimeter
-      ctx.fillStyle = COLORS.wall;
+      ctx.fillStyle = C.border;
       ctx.fillRect(0, 0, this.size, this.size);
-      ctx.strokeStyle = COLORS.wallEdge;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x0 - 3.5 * S, y0 - 3.5 * S, size + 7 * S, size + 7 * S);
+      // perimeter
+      ctx.fillStyle = C.wall;
+      ctx.fillRect(x0 - 3 * S, y0 - 3 * S, size + 6 * S, size + 6 * S);
       // foam tiles
       for (let i = 0; i < 6; i++) {
         for (let j = 0; j < 6; j++) {
-          ctx.fillStyle = (i + j) % 2 ? COLORS.tileAlt : COLORS.mat;
+          ctx.fillStyle = (i + j) % 2 ? C.tileB : C.tileA;
           ctx.fillRect(x0 + i * F.TILE * S, y0 + j * F.TILE * S, F.TILE * S + 0.5, F.TILE * S + 0.5);
         }
       }
-      ctx.strokeStyle = COLORS.tileLine;
+      ctx.strokeStyle = C.line;
       ctx.lineWidth = 1;
       ctx.beginPath();
-      for (let k = 0; k <= 6; k++) {
+      for (let k = 1; k < 6; k++) {
         ctx.moveTo(x0 + k * F.TILE * S, y0);
         ctx.lineTo(x0 + k * F.TILE * S, y0 + size);
         ctx.moveTo(x0, y0 + k * F.TILE * S);
         ctx.lineTo(x0 + size, y0 + k * F.TILE * S);
       }
       ctx.stroke();
-      // centre cross-hair
-      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-      ctx.beginPath();
-      ctx.moveTo(this.wx(0), this.wy(-F.HALF));
-      ctx.lineTo(this.wx(0), this.wy(F.HALF));
-      ctx.moveTo(this.wx(-F.HALF), this.wy(0));
-      ctx.lineTo(this.wx(F.HALF), this.wy(0));
-      ctx.stroke();
-      // alliance stripes on the walls (red bottom half, blue top half)
-      const stripe = 2.2 * S;
-      ctx.fillStyle = COLORS.red;
-      ctx.fillRect(x0 - stripe - 1, this.wy(0), stripe, size / 2);
-      ctx.fillRect(x0, y0 + size + 1, size / 2, stripe);
-      ctx.fillStyle = COLORS.blue;
-      ctx.fillRect(x0 + size + 1, y0, stripe, size / 2);
-      ctx.fillRect(x0 + size / 2, y0 - stripe - 1, size / 2, stripe);
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(x0, y0, size, size);
     }
 
     drawToggles(ctx) {
       const S = this.scale;
+      const len = 26 * S;
+      const th = 2.4 * S;
+      ctx.fillStyle = C.gray;
       F.TOGGLES.forEach((t) => {
         const horizontal = t.wall === 'top' || t.wall === 'bottom';
-        const len = 26 * S;
-        const th = 3.4 * S;
-        const off = t.wall === 'top' ? -1.6 : t.wall === 'bottom' ? 1.6 : 0;
-        const offx = t.wall === 'left' ? -1.6 : t.wall === 'right' ? 1.6 : 0;
-        const cx = this.wx(t.x + offx);
-        const cy = this.wy(t.y + off);
-        ctx.fillStyle = t.team === 'red' ? COLORS.red : COLORS.blue;
-        ctx.globalAlpha = 0.9;
+        const cx = this.wx(t.x);
+        const cy = this.wy(t.y);
         if (horizontal) ctx.fillRect(cx - len / 2, cy - th / 2, len, th);
         else ctx.fillRect(cx - th / 2, cy - len / 2, th, len);
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = '#e9eaee';
-        ctx.beginPath();
-        ctx.arc(cx, cy, th * 0.55, 0, Math.PI * 2);
-        ctx.fill();
       });
     }
 
     drawLoaders(ctx) {
       const S = this.scale;
+      const sz = 6 * S;
       F.LOADERS.forEach((l) => {
-        const sz = 7 * S;
-        ctx.fillStyle = '#2b3037';
+        ctx.fillStyle = '#2a2c30';
         ctx.fillRect(this.wx(l.x) - sz / 2, this.wy(l.y) - sz / 2, sz, sz);
-        ctx.strokeStyle = '#9aa1ab';
-        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = '#a4a8af';
+        ctx.lineWidth = 1;
         ctx.strokeRect(this.wx(l.x) - sz / 2, this.wy(l.y) - sz / 2, sz, sz);
-        ctx.fillStyle = '#0d0f12';
-        ctx.beginPath();
-        ctx.arc(this.wx(l.x), this.wy(l.y), 1.7 * S, 0, Math.PI * 2);
-        ctx.fill();
       });
     }
 
@@ -161,23 +130,20 @@
       F.ELEMENTS.forEach((e) => {
         const x = this.wx(e.x);
         const y = this.wy(e.y);
+        ctx.beginPath();
         if (e.type === 'cup') {
-          ctx.strokeStyle = '#e7e9ee';
-          ctx.fillStyle = 'rgba(231,233,238,0.18)';
-          ctx.lineWidth = Math.max(1, 0.7 * S);
-          ctx.beginPath();
           ctx.arc(x, y, 1.9 * S, 0, Math.PI * 2);
+          ctx.fillStyle = C[e.color] || C.gray;
           ctx.fill();
-          ctx.stroke();
+          ctx.strokeStyle = 'rgba(0,0,0,0.45)';
         } else {
-          ctx.fillStyle = COLORS[e.team] || COLORS.yellow;
-          ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
           ctx.arc(x, y, 1.2 * S, 0, Math.PI * 2);
+          ctx.fillStyle = C[e.color] || C.yellow;
           ctx.fill();
-          ctx.stroke();
+          ctx.strokeStyle = 'rgba(0,0,0,0.45)';
         }
+        ctx.lineWidth = 1;
+        ctx.stroke();
       });
     }
 
@@ -185,19 +151,12 @@
       const S = this.scale;
       F.GOALS.forEach((g) => {
         const r = F.GOAL_RADIUS[g.kind] * S;
-        const x = this.wx(g.x);
-        const y = this.wy(g.y);
-        ctx.fillStyle = g.team === 'red' ? 'rgba(229,72,77,0.35)' : g.team === 'blue' ? 'rgba(62,123,250,0.35)' : 'rgba(201,204,210,0.28)';
-        ctx.strokeStyle = g.team === 'red' ? COLORS.red : g.team === 'blue' ? COLORS.blue : COLORS.neutral;
-        ctx.lineWidth = g.kind === 'tall' ? 3 : 2.2;
         ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.arc(this.wx(g.x), this.wy(g.y), r, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(20,22,26,0.35)';
         ctx.fill();
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(x, y, r * 0.55, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = g.team === 'red' ? C.red : g.team === 'blue' ? C.blue : C.neutral;
+        ctx.lineWidth = g.kind === 'tall' ? 3 : 2.5;
         ctx.stroke();
       });
     }
@@ -206,7 +165,7 @@
       if (!pts || pts.length < 2) return;
       ctx.strokeStyle = color;
       ctx.lineWidth = width;
-      ctx.setLineDash(dashed ? [6, 5] : []);
+      ctx.setLineDash(dashed ? [6, 4] : []);
       ctx.lineJoin = 'round';
       ctx.beginPath();
       pts.forEach((p, i) => (i ? ctx.lineTo(this.wx(p.x), this.wy(p.y)) : ctx.moveTo(this.wx(p.x), this.wy(p.y))));
@@ -217,32 +176,31 @@
     drawPaths(ctx, paths) {
       paths.forEach((p) => {
         if (!p.visible || !p.points.length) return;
-        this.drawPolyline(ctx, p.points, p.color, 2, true);
+        this.drawPolyline(ctx, p.points, p.color, 1.5, true);
         const a = p.points[0];
         const b = p.points[p.points.length - 1];
         ctx.fillStyle = p.color;
         ctx.beginPath();
-        ctx.arc(this.wx(a.x), this.wy(a.y), 3.5, 0, Math.PI * 2);
+        ctx.arc(this.wx(a.x), this.wy(a.y), 3, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillRect(this.wx(b.x) - 3.5, this.wy(b.y) - 3.5, 7, 7);
+        ctx.fillRect(this.wx(b.x) - 3, this.wy(b.y) - 3, 6, 6);
       });
     }
 
     drawAim(ctx, a) {
       const x = this.wx(a.x);
       const y = this.wy(a.y);
-      ctx.strokeStyle = '#ffd166';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = C.guide;
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.arc(x, y, 6, 0, Math.PI * 2);
-      ctx.moveTo(x - 10, y);
-      ctx.lineTo(x + 10, y);
-      ctx.moveTo(x, y - 10);
-      ctx.lineTo(x, y + 10);
+      ctx.moveTo(x - 7, y);
+      ctx.lineTo(x + 7, y);
+      ctx.moveTo(x, y - 7);
+      ctx.lineTo(x, y + 7);
       ctx.stroke();
     }
 
-    /** pose = {x, y, h} with h in compass degrees (0 = up, clockwise) */
+    /** pose = {x, y, h}, h in compass degrees (0 = up, clockwise) */
     drawRobot(ctx, pose, dims, o) {
       const S = this.scale;
       const L = dims.length * S;
@@ -250,63 +208,53 @@
       ctx.save();
       ctx.translate(this.wx(pose.x), this.wy(pose.y));
       ctx.rotate((pose.h * Math.PI) / 180);
-      // wheels
-      ctx.fillStyle = o.ghost ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.55)';
-      ctx.fillRect(-W / 2 - 2, -L / 2 + L * 0.12, 4, L * 0.76);
-      ctx.fillRect(W / 2 - 2, -L / 2 + L * 0.12, 4, L * 0.76);
-      // body
-      ctx.fillStyle = o.ghost ? 'rgba(255,255,255,0.10)' : o.hit ? COLORS.robotHit : COLORS.robot;
-      ctx.globalAlpha = o.ghost ? 1 : 0.88;
+      ctx.fillStyle = o.ghost ? 'rgba(255,255,255,0.08)' : o.hit ? C.hit : C.robot;
+      ctx.globalAlpha = o.ghost ? 1 : 0.7;
       ctx.fillRect(-W / 2, -L / 2, W, L);
       ctx.globalAlpha = 1;
-      ctx.strokeStyle = o.ghost ? COLORS.ghost : '#06201b';
-      ctx.setLineDash(o.ghost ? [5, 4] : []);
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = o.ghost ? 'rgba(255,255,255,0.8)' : '#0b1d1a';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash(o.ghost ? [5, 3] : []);
       ctx.strokeRect(-W / 2, -L / 2, W, L);
       ctx.setLineDash([]);
-      // front arrow
-      ctx.fillStyle = o.ghost ? COLORS.ghost : '#06201b';
+      // heading line
       ctx.beginPath();
-      ctx.moveTo(0, -L / 2 + 2);
-      ctx.lineTo(-W * 0.2, -L * 0.1);
-      ctx.lineTo(W * 0.2, -L * 0.1);
-      ctx.closePath();
-      ctx.fill();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, -L / 2);
+      ctx.stroke();
       if (o.handle) {
-        ctx.beginPath();
-        ctx.arc(0, -L / 2 - 14, 6, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffd166';
-        ctx.fill();
+        ctx.strokeStyle = C.guide;
+        ctx.fillStyle = C.guide;
         ctx.beginPath();
         ctx.moveTo(0, -L / 2);
         ctx.lineTo(0, -L / 2 - 14);
-        ctx.strokeStyle = '#ffd166';
-        ctx.lineWidth = 1.5;
         ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(0, -L / 2 - 14, 4, 0, Math.PI * 2);
+        ctx.fill();
       }
       ctx.restore();
     }
 
-    /** the code-frame axes (0,0,0) drawn at the start pose */
+    /** code-frame axes drawn at the start pose */
     drawCodeAxes(ctx, a) {
-      const S = this.scale;
-      const len = 14 * S;
+      const len = 12 * this.scale;
       ctx.save();
       ctx.translate(this.wx(a.x), this.wy(a.y));
       ctx.rotate((a.h * Math.PI) / 180);
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = '#ff6b6b';
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#e06666';
       ctx.beginPath();
       ctx.moveTo(0, 0);
       ctx.lineTo(len, 0);
       ctx.stroke();
-      ctx.strokeStyle = '#6bff9b';
+      ctx.strokeStyle = '#7bc47f';
       ctx.beginPath();
       ctx.moveTo(0, 0);
       ctx.lineTo(0, -len);
       ctx.stroke();
       ctx.fillStyle = '#fff';
-      ctx.font = '600 11px system-ui, sans-serif';
+      ctx.font = '11px Consolas, "Liberation Mono", monospace';
       ctx.fillText('x', len + 3, 4);
       ctx.fillText('y', 4, -len - 3);
       ctx.restore();

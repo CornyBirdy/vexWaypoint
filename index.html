@@ -4,119 +4,110 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VEX Auton Sim</title>
-<meta name="description" content="Drivetrain-only LemLib autonomous simulator for the VEX V5 Override field. Loads path.jerryio files.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23101418'/%3E%3Crect x='9' y='7' width='14' height='18' rx='2' fill='%2319c3a6'/%3E%3Cpath d='M16 3l4 6h-8z' fill='%23ffd166'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23333'/%3E%3Crect x='4' y='3' width='8' height='10' fill='%232f8f83'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-<header class="top">
-  <div class="brand">
-    <span class="logo" aria-hidden="true"></span>
-    <h1>VEX Auton Sim <small>Override &middot; LemLib drivetrain</small></h1>
-  </div>
-  <div class="top-actions">
-    <label class="check"><input type="checkbox" id="autoRun" checked> Re-run when settings change</label>
-    <button id="btnExample" class="btn ghost" type="button" title="Replace the code and paths with the built-in example">Load example</button>
-    <button id="btnRun" class="btn primary" type="button" title="Ctrl + Enter">&#9654; Run auton</button>
-  </div>
+<header class="bar">
+  <h1>VEX Auton Sim</h1>
+  <span class="grow"></span>
+  <label class="check"><input type="checkbox" id="autoRun" checked> re-run on change</label>
+  <button id="btnExample" class="btn" type="button">Load example</button>
+  <button id="btnRun" class="btn primary" type="button" title="Ctrl+Enter">Run</button>
 </header>
 
 <main class="layout">
-  <section class="stage" aria-label="Field">
+  <section class="stage">
     <div class="canvas-wrap">
-      <canvas id="field" aria-label="Override field with the simulated robot"></canvas>
-      <div class="hud" id="hud" aria-live="off">
-        <div><span class="k">time</span> <b id="tTime">0.00</b> s <span id="tLimit" class="badge"></span></div>
-        <div><span class="k">field</span> <span id="tField">-</span></div>
-        <div><span class="k">code</span> <span id="tCode">-</span></div>
-        <div><span class="k">speed</span> <span id="tSpeed">-</span></div>
-        <div class="motion" id="tMotion">&nbsp;</div>
-      </div>
+      <canvas id="field" aria-label="Field"></canvas>
     </div>
 
     <div class="transport">
-      <button id="btnRestart" class="btn icon" type="button" title="Restart (Home)" aria-label="Restart">&#9198;</button>
-      <button id="btnPlay" class="btn icon primary" type="button" title="Play / pause (Space)" aria-label="Play or pause">&#9654;</button>
+      <button id="btnRestart" class="btn" type="button" title="Home">Restart</button>
+      <button id="btnPlay" class="btn" type="button" title="Space">Play</button>
       <input id="scrub" type="range" min="0" max="1000" value="0" step="10" aria-label="Timeline">
       <select id="speed" aria-label="Playback speed">
-        <option value="0.25">0.25&times;</option>
-        <option value="0.5">0.5&times;</option>
-        <option value="1" selected>1&times;</option>
-        <option value="2">2&times;</option>
-        <option value="4">4&times;</option>
+        <option value="0.25">0.25x</option>
+        <option value="0.5">0.5x</option>
+        <option value="1" selected>1x</option>
+        <option value="2">2x</option>
+        <option value="4">4x</option>
       </select>
     </div>
-    <div class="readout" id="cursor">Hover the field to read coordinates. Drag the dashed start robot to move it; drag its yellow handle to turn it.</div>
+
+    <table class="readout" id="hud">
+      <tr><th>time</th><td><span id="tTime">0.00</span> s <span id="tLimit" class="lim"></span></td></tr>
+      <tr><th>field</th><td id="tField">-</td></tr>
+      <tr><th>code</th><td id="tCode">-</td></tr>
+      <tr><th>speed</th><td id="tSpeed">-</td></tr>
+      <tr><th>motion</th><td id="tMotion">-</td></tr>
+      <tr><th>cursor</th><td id="cursor">-</td></tr>
+    </table>
 
     <div class="viewopts">
-      <label class="check"><input type="checkbox" id="optTrail" checked> Trail</label>
-      <label class="check"><input type="checkbox" id="optPaths" checked> Path files</label>
-      <label class="check"><input type="checkbox" id="optAxes" checked> Code axes (0,0,0)</label>
-      <label class="check"><input type="checkbox" id="optAim" checked> Target marker</label>
+      <label class="check"><input type="checkbox" id="optTrail" checked> trail</label>
+      <label class="check"><input type="checkbox" id="optPaths" checked> paths</label>
+      <label class="check"><input type="checkbox" id="optAxes" checked> code axes</label>
+      <label class="check"><input type="checkbox" id="optAim" checked> target</label>
     </div>
 
-    <details class="card" open>
-      <summary>Run log</summary>
+    <details class="sec" open>
+      <summary>Log</summary>
       <div id="log" class="log" role="log"></div>
     </details>
   </section>
 
-  <aside class="panel" aria-label="Settings">
-    <details class="card" open>
-      <summary>Start pose <span class="hint">where the robot sits on the field</span></summary>
-      <div class="grid" id="formStart"></div>
-      <p class="note">In your code, <code>0, 0, 0</code> is this pose: <b>+y</b> is straight ahead of the robot, <b>+x</b> is to its right, heading <b>0&deg;</b> is its starting direction. A <code>chassis.setPose(...)</code> in the code re-anchors it.</p>
+  <aside class="panel">
+    <details class="sec" open>
+      <summary>Start pose</summary>
+      <div class="props" id="formStart"></div>
+      <p class="note">Code 0, 0, 0 is this pose. +y is the robot's forward, +x its right. Drag the dashed robot on the field to move it, the handle to turn it.</p>
     </details>
 
-    <details class="card" open>
-      <summary>Drivetrain <span class="hint" id="topSpeed"></span></summary>
-      <div class="grid" id="formDrive"></div>
+    <details class="sec" open>
+      <summary>Drivetrain <span class="aside" id="topSpeed"></span></summary>
+      <div class="props" id="formDrive"></div>
     </details>
 
-    <details class="card" open>
-      <summary>Path files <span class="hint">path.jerryio</span></summary>
-      <div class="dropzone" id="drop" tabindex="0">
+    <details class="sec" open>
+      <summary>Paths</summary>
+      <div class="dropzone" id="drop">
         <input type="file" id="fileInput" multiple accept=".txt,.jerryio,.json,.csv,.path">
-        <span>Drop <b>.txt</b> (LemLib export) or <b>.jerryio</b> files here, or <button class="link" id="btnBrowse" type="button">browse</button></span>
+        Drop .txt / .jerryio files here or <button class="link" id="btnBrowse" type="button">browse</button>
       </div>
       <ul class="paths" id="pathList"></ul>
-      <label class="field wide">
-        <span>Path coordinates mean</span>
-        <select id="pathMode"></select>
-      </label>
+      <div class="props">
+        <label class="field"><span>Coordinates</span><select id="pathMode"></select></label>
+      </div>
       <p class="note" id="pathModeNote"></p>
     </details>
 
-    <details class="card" open>
-      <summary>Auton code <span class="hint">Ctrl + Enter to run</span></summary>
-      <div class="row">
+    <details class="sec" open>
+      <summary>Code</summary>
+      <div class="props">
         <label class="field"><span>Language</span>
           <select id="lang"><option value="cpp">C++ (LemLib)</option><option value="js">JavaScript</option></select>
         </label>
-        <label class="field" id="routineWrap" hidden><span>Routine</span>
-          <select id="routine"></select>
-        </label>
-        <label class="field"><span>Match length</span>
+        <label class="field" id="routineWrap" hidden><span>Routine</span><select id="routine"></select></label>
+        <label class="field"><span>Match</span>
           <select id="autonLimit"><option value="15">15 s auton</option><option value="60">60 s skills</option></select>
         </label>
       </div>
       <textarea id="code" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Autonomous code"></textarea>
-      <div class="row">
-        <button id="btnImport" class="btn ghost" type="button" title="Read the lemlib::Drivetrain and ControllerSettings lines in your code and copy their numbers into the settings">Import drivetrain &amp; gains from code</button>
+      <div class="actions">
+        <button id="btnImport" class="btn" type="button" title="Read lemlib::Drivetrain and ControllerSettings from the code above">Import settings from code</button>
       </div>
-      <p class="note">Only the drivetrain is simulated. Calls to anything else (intake, lift, clamp, &hellip;) are ignored.</p>
+      <p class="note">Drivetrain only. Calls on other objects (intake, lift, clamp...) are ignored.</p>
     </details>
 
-    <details class="card">
-      <summary>LemLib tuning <span class="hint">PID, exit conditions, slew</span></summary>
-      <div class="tuning">
-        <h3>Lateral controller</h3><div class="grid" id="formLat"></div>
-        <h3>Angular controller</h3><div class="grid" id="formAng"></div>
-      </div>
+    <details class="sec">
+      <summary>LemLib controllers</summary>
+      <h3>Lateral</h3><div class="props" id="formLat"></div>
+      <h3>Angular</h3><div class="props" id="formAng"></div>
     </details>
 
-    <div class="foot">
-      <button id="btnReset" class="btn ghost" type="button">Reset settings</button>
+    <div class="actions end">
+      <button id="btnReset" class="btn" type="button">Reset settings</button>
     </div>
   </aside>
 </main>
