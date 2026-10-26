@@ -373,7 +373,12 @@
       const allowed = Math.sqrt(pts[i + 1].v * pts[i + 1].v + 2 * decel * d);
       pts[i].v = Math.max(Math.min(pts[i].v, allowed), lFrom);
     }
-    return pts.map((q) => ({ x: q.x, y: q.y, v: q.v }));
+    return pts;
+  }
+
+  /** points of an editable path ({x, y, v, seg, s}) - used by the path editor and by project import */
+  function computePathPoints(p, gc) {
+    return jsonPathPoints(p, gc || {}, null);
   }
 
   function pathsFromJson(json, fileName, warnings) {
@@ -386,7 +391,8 @@
     const base = idFromName(fileName.replace(/\.[^.]*$/, ''));
     const out = [];
     list.forEach((p, idx) => {
-      const pts = jsonPathPoints(p, gc, info);
+      const full = jsonPathPoints(p, gc, info);
+      const pts = full && full.map((q) => ({ x: q.x, y: q.y, v: q.v }));
       if (!pts || pts.length < 3) {
         warnings.push(`${fileName}: path "${p.name || idx + 1}" has no usable segments, skipped`);
         return;
@@ -469,7 +475,7 @@
       p.file = fileName;
       p.coordinateSystem = cs || 'VEX Gaming Positioning System';
     });
-    return { paths, warnings };
+    return { paths, warnings, json };
   }
 
   /** points converted to inches */
@@ -478,5 +484,5 @@
     return path.points.map((p) => ({ x: p.x * s, y: p.y * s, v: p.v }));
   }
 
-  Object.assign(NS, { parsePathFile, pointsInInches, idFromName, UNIT_TO_IN, GHOST_DISTANCE_IN });
+  Object.assign(NS, { parsePathFile, computePathPoints, pointsInInches, idFromName, unitFromUol, UNIT_TO_IN, GHOST_DISTANCE_IN });
 })();

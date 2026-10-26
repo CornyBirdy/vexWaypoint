@@ -154,3 +154,27 @@ ul.paths:empty::after { content: "none loaded"; color: var(--muted); }
   .layout { grid-template-columns: minmax(0, 1fr); padding: 8px; }
   .stage > * { width: 100%; min-width: 0; }
 }
+
+/* ---- path editing */
+.tools { display: flex; gap: 6px; align-items: center; }
+.btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.canvas-wrap { position: relative; }
+.popup {
+  position: absolute; z-index: 5; display: flex; gap: 2px; padding: 3px;
+  background: var(--panel); border: 1px solid var(--line); box-shadow: 0 2px 8px rgba(0, 0, 0, .45);
+}
+.popup[hidden] { display: none; }
+.speedwrap { border: 1px solid var(--line); background: var(--field); }
+.speedwrap[hidden] { display: none; }
+#speedGraph { display: block; width: 100%; height: 120px; touch-action: none; cursor: crosshair; }
+.speedhint { padding: 2px 6px; color: var(--muted); font-size: 11.5px; border-top: 1px solid var(--line); }
+.path.sel { border-color: var(--accent); }
+.path { grid-template-columns: 10px minmax(0, 1fr) auto auto auto; }
+.mini { background: none; border: 1px solid var(--line); color: var(--muted); font-size: 11px; padding: 0 5px; cursor: pointer; border-radius: 2px; }
+.mini.on { color: var(--warn); border-color: var(--warn); }
+.field input[type=text] { text-align: left; }
+.sec > .actions { flex-wrap: wrap; margin: 8px; }
+#exportFmt { flex: 1; min-width: 0; }
+#projList:empty::after { content: "no paths yet: press New path, or drop a jerry.io file"; }
+#pathList:empty::after { content: none; }
+#pathList:empty { display: none; }

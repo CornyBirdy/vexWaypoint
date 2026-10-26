@@ -18,8 +18,25 @@
 
 <main class="layout">
   <section class="stage">
+    <div class="tools">
+      <button id="toolPose" class="btn on" type="button" title="Drag the robot to set where it starts">Start pose</button>
+      <button id="toolEdit" class="btn" type="button" title="Click the field to draw paths, drag points to edit them">Edit paths</button>
+      <span class="grow"></span>
+      <button id="btnUndo" class="btn" type="button" title="Ctrl+Z">Undo</button>
+      <button id="btnRedo" class="btn" type="button" title="Ctrl+Y">Redo</button>
+      <select id="fieldStyle" aria-label="Field picture">
+        <option value="photo-match">Field: match</option>
+        <option value="photo-skills">Field: skills</option>
+        <option value="drawn">Field: drawn</option>
+      </select>
+    </div>
     <div class="canvas-wrap">
       <canvas id="field" aria-label="Field"></canvas>
+      <div id="popup" class="popup" hidden></div>
+    </div>
+    <div id="speedWrap" class="speedwrap" hidden>
+      <canvas id="speedGraph" aria-label="Speed profile"></canvas>
+      <div class="speedhint"><span id="speedInfo">Click the graph to add a speed point, drag to move it, double-click to remove.</span></div>
     </div>
 
     <div class="transport">
@@ -75,11 +92,35 @@
         <input type="file" id="fileInput" multiple>
         Drop jerry.io files (.txt, .jerryio, LemLib binary) here or <button class="link" id="btnBrowse" type="button">browse</button>
       </div>
+      <ul class="paths" id="projList"></ul>
       <ul class="paths" id="pathList"></ul>
+      <div class="actions">
+        <button id="btnNewPath" class="btn" type="button" title="Start a new path and switch to the edit tool">New path</button>
+        <select id="exportFmt" aria-label="Export format">
+          <option value="project">jerry.io project (.jerryio)</option>
+          <option value="lemlib04">LemLib v0.4 (.txt), selected path</option>
+          <option value="lemlib1">LemLib v1.0 (.bin)</option>
+        </select>
+        <button id="btnExport" class="btn" type="button">Export</button>
+      </div>
       <div class="props">
         <label class="field"><span>Coordinates</span><select id="pathMode"></select></label>
       </div>
       <p class="note" id="pathModeNote"></p>
+    </details>
+
+    <details class="sec" id="pathProps" open hidden>
+      <summary>Selected path</summary>
+      <div class="props">
+        <label class="field"><span>Name</span><input id="pName" type="text" maxlength="40"></label>
+        <label class="field"><span>Min speed</span><input id="pFrom" type="number" step="1" min="0" max="255"></label>
+        <label class="field"><span>Max speed</span><input id="pTo" type="number" step="1" min="0" max="255"></label>
+        <label class="field"><span>Bend rate from</span><input id="pBentFrom" type="number" step="0.005" min="0"></label>
+        <label class="field"><span>Bend rate to</span><input id="pBentTo" type="number" step="0.005" min="0"></label>
+        <label class="field"><span>Max deceleration</span><input id="pDecel" type="number" step="1" min="0.1" max="255"></label>
+        <label class="field"><span>Point density (in)</span><input id="pDensity" type="number" step="0.25" min="0.25"></label>
+      </div>
+      <p class="note">Speeds use LemLib v0.4 units (0-127). Slower where the path bends more, and never faster than the robot could stop from.</p>
     </details>
 
     <details class="sec" open>
@@ -115,10 +156,13 @@
 <script src="js/lemlib.js"></script>
 <script src="js/paths.js"></script>
 <script src="js/translate.js"></script>
+<script src="js/editor.js"></script>
+<script src="js/export.js"></script>
 <script src="js/sim.js"></script>
 <script src="js/field.js"></script>
 <script src="js/render.js"></script>
 <script src="js/examples.js"></script>
+<script src="js/pathtool.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

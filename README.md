@@ -3,6 +3,8 @@
 A drivetrain-only autonomous simulator for the **VEX V5 Override** field.
 It runs your **LemLib** auton code (C++ or JavaScript), follows **path.jerryio** files, and lets you scrub the result on a timeline.
 
+It includes a **path editor** ported from [path.jerryio](https://github.com/Jerrylum/path.jerryio), so you can draw and tune paths right on the field, and its Override field pictures. Because of that this project is licensed **GPL-3.0** (see `LICENSE` and `NOTICE.md`).
+
 Only the drivetrain is simulated. Intake, lift, claw and the like are ignored, and the game elements (goals, loaders, toggles, cups, pins) are visual only.
 
 ## Running it
@@ -25,6 +27,22 @@ There is no build step, so there is no `rebuild.bat`.
 4. **Auton code** - paste your `autonomous()` (or the whole `main.cpp`), press **Run auton** or `Ctrl + Enter`.
 5. Use the timeline to play, pause and scrub. Click a line in the run log to jump to that motion. Keys: `Space` play/pause, `Home` restart, `←` `→` nudge 0.1 s.
 
+### Drawing paths
+
+Press **Edit paths** (above the field), or **New path**, then:
+
+- click empty field: **Curve** or **Line** adds a segment from the last point (the first segment starts at the robot's start pose)
+- click a point: **Delete** (end points; their segment goes with them). Drag points to move them; an end point takes its two handles with it, hold `Ctrl` to move it alone
+- click a curve: **Convert** (curve <-> line) or **Split** (adds a point there)
+- the **speed graph** under the field: click to add a speed point, drag it, double-click (or `Delete`) to remove it. Points on the field are coloured red (slow) to green (fast)
+- **Selected path** panel: name, min / max speed, bend-rate range, max deceleration, point density
+- `Ctrl+Z` / `Ctrl+Y` undo and redo
+
+Paths you draw (or open from a jerry.io file) are used in code by their name (`Path 2` is `Path_2`), plus the file name for imported ones (`example.txt` is `example_txt`); click the name in the list to copy it.
+**Export** writes a jerry.io project (`.jerryio`, opens in jerry.io), a LemLib v0.4 `.txt`, or a LemLib v1.0 `.bin`.
+
+The field picture can be switched between the match field, the skills field and the drawn version.
+
 ### Path coordinates
 
 | Mode | Meaning |
@@ -34,6 +52,8 @@ There is no build step, so there is no `rebuild.bat`.
 | **Code coordinates** | File numbers are used as-is in the odometry frame (what a real robot does if you never rebase them). |
 
 Units come from the file's format (LemLib text = inches, path.jerryio = cm, v1.0 = mm, project files = the unit chosen in jerry.io); you can override them per file.
+
+Dropping a file that contains the full jerry.io project (`.jerryio`, LemLib `.txt` / `.bin` exports, which embed it) opens its paths in the editor. Anything else is used as plain points.
 
 Supported files: LemLib v0.4 text (with the ghost point), LemLib Tarball v0.5 and path.jerryio v0.1 text (`#PATH-POINTS-START` blocks), LemLib v1.0 binary (mm, m/s), and `.jerryio` project JSON. Speeds are converted to motor commands (0-127 and 0-255 are used directly, m/s is scaled to what the robot's wheels can do).
 
@@ -52,8 +72,8 @@ It is a small translator, **not a C++ compiler**: helper functions with paramete
 
 * **LemLib behaviour is a port of the algorithms** (PID, exit conditions, boomerang `moveToPose`, pure-pursuit `follow`), written from the LemLib source as I know it. It is close, not bit-exact: expect small differences from a real robot, and tune on the robot as usual. In particular, a motion ends when *either* the small-error or the large-error exit condition is met.
 * **Physics** is a simple differential drive: wheel speed follows the motor command with a first-order lag ("motor response"), odometry is perfect, the robot cannot leave the field walls. No wheel slip, no collisions with goals.
-* **Path files** are read according to the layouts jerry.io writes (checked against its published source, not copied from it). For `.jerryio` project files the points and speed profile are recomputed here (even spacing along the curve, speed limits, bend-rate slowdown, keyframes, deceleration); for the exported `.txt` / binary files the exported points and speeds are used exactly. Followed paths get a "ghost" tail past the end (like LemLib's) so the robot slows to a stop instead of cutting off. If a file does not load, the run log says why.
-* **Field layout** is drawn from the manual's "Override field setup" figure: red side on the left, blue on the right, the 9 goals (octagonal posts; red alliance goals lower-left, blue upper-right, neutral short goals upper-left / lower-right, tall goal in the centre), the four 4-pin starbursts on the double diagonal, wall cup groups, single pins on the other diagonal, the red/blue pins at the diamond points, corner boxes, loaders on the alliance walls, and yellow toggles. Positions were measured off a top-down render of the field (about half an inch of error). Goal and cup sizes are estimates. Everything is plain data in `js/field.js`.
+* **Path files**: exported points and speeds are used as they are in plain-point files; paths opened in the editor are recomputed with the same speed rules jerry.io uses (even spacing along the curve, speed limits, bend-rate slowdown, keyframes, deceleration), so they can differ from the exported numbers by small amounts. Followed paths get a "ghost" tail past the end (like LemLib's) so the robot slows to a stop. If a file does not load, the run log says why.
+* **Field**: the default is path.jerryio's Override field picture. The "drawn" version is my own, measured off that picture: red side on the left, blue on the right, the 9 goals (octagonal posts; red alliance goals lower-left, blue upper-right, neutral short goals upper-left / lower-right, tall goal in the centre), the four 4-pin starbursts on the double diagonal, wall cup groups, single pins on the other diagonal, the red/blue pins at the diamond points, corner boxes, loaders on the alliance walls, and yellow toggles. Positions were measured off a top-down render of the field (about half an inch of error). Goal and cup sizes are estimates. Everything is plain data in `js/field.js`.
 
 ## Files
 
@@ -62,12 +82,16 @@ index.html, css/style.css       the page
 js/lemlib.js                    LemLib controllers + chassis (motions)
 js/sim.js                       physics, virtual clock, runs your code
 js/translate.js                 C++ -> JS translator
-js/paths.js                     jerry.io file parsing
+js/paths.js                     jerry.io file parsing + speed profile
+js/editor.js, js/export.js      path editor model, jerry.io-compatible export
+js/pathtool.js                  path editing UI (field clicks, speed graph, list)
+assets/field/                   Override field pictures (from path.jerryio)
 js/field.js, js/render.js       Override field + canvas drawing
 js/app.js                       UI
 examples/                       example.txt, example.jerryio, example_auton.cpp
 rack.json, run-sim.bat, setup.bat, start.bat, serve.py, serve.ps1
 tests/engine.test.js            node tests/engine.test.js
+tests/editor.test.js            node tests/editor.test.js
 tools/make-examples.js          regenerates examples/ and js/examples.js
 ```
 

@@ -33,6 +33,10 @@
 
   const hex = { red: C.pinRed, blue: C.pinBlue, yellow: C.yellow };
 
+  // the field photos (from path.jerryio) cover the field plus its perimeter
+  const PHOTO_HALF = 74.0; // inches from the field centre to the edge of the picture
+  const PHOTOS = { match: 'assets/field/override-match.png', skills: 'assets/field/override-skills.png' };
+
   class Renderer {
     constructor(canvas) {
       this.canvas = canvas;
@@ -40,7 +44,21 @@
       this.w = 700;
       this.h = 700;
       this.dpr = 1;
+      this.style = 'photo-match'; // 'photo-match' | 'photo-skills' | 'drawn'
+      this.images = {};
+      this.onImageLoad = null;
       this.resize();
+    }
+
+    setFieldStyle(style) {
+      this.style = style;
+      const key = style === 'photo-skills' ? 'skills' : style === 'photo-match' ? 'match' : null;
+      if (key && !this.images[key]) {
+        const img = new Image();
+        img.onload = () => this.onImageLoad && this.onImageLoad();
+        img.src = PHOTOS[key];
+        this.images[key] = img;
+      }
     }
 
     resize() {
@@ -69,13 +87,18 @@
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       ctx.fillStyle = C.bg;
       ctx.fillRect(0, 0, this.w, this.h);
-      this.drawField(ctx);
-      this.drawMarkings(ctx);
-      this.drawLoaders(ctx);
-      this.drawElements(ctx);
-      this.drawGoals(ctx);
-      this.drawToggles(ctx);
+      const photo = this.photo();
+      if (photo) this.drawPhoto(ctx, photo);
+      else {
+        this.drawField(ctx);
+        this.drawMarkings(ctx);
+        this.drawLoaders(ctx);
+        this.drawElements(ctx);
+        this.drawGoals(ctx);
+        this.drawToggles(ctx);
+      }
       if (s.paths) this.drawPaths(ctx, s.paths);
+      if (s.edit) this.drawEdit(ctx, s.edit);
       if (s.followPath) this.drawPolyline(ctx, s.followPath, C.guide, 2.5, false);
       if (s.trail && s.trail.length > 1) this.drawPolyline(ctx, s.trail, C.trail, 2, false);
       if (s.ghost) this.drawRobot(ctx, s.ghost, s.robot, { ghost: true, handle: s.ghostHandle });
@@ -85,6 +108,20 @@
     }
 
     // ---------------------------------------------------------- field
+
+    /** the loaded photo for the current style, or null while it loads / when drawing the field */
+    photo() {
+      const key = this.style === 'photo-skills' ? 'skills' : this.style === 'photo-match' ? 'match' : null;
+      const img = key && this.images[key];
+      return img && img.complete && img.naturalWidth ? img : null;
+    }
+
+    drawPhoto(ctx, img) {
+      const x0 = this.wx(-PHOTO_HALF);
+      const y0 = this.wy(PHOTO_HALF);
+      const size = PHOTO_HALF * 2 * this.scale;
+      ctx.drawImage(img, x0, y0, size, size);
+    }
 
     drawField(ctx) {
       const S = this.scale;
@@ -375,6 +412,71 @@
         ctx.arc(this.wx(a.x), this.wy(a.y), 3, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillRect(this.wx(b.x) - 3, this.wy(b.y) - 3, 6, 6);
+      });
+    }
+
+    /** editable paths: speed-coloured points, curves, and control handles for the selected path */
+    drawEdit(ctx, edit) {
+      const S = this.scale;
+      edit.paths.forEach((p) => {
+        if (!p.visible) return;
+        ctx.globalAlpha = p.selected ? 1 : 0.55;
+        // curve
+        ctx.strokeStyle = p.selected ? 'rgba(255,255,255,0.75)' : 'rgba(255,255,255,0.45)';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        p.points.forEach((q, i) => (i ? ctx.lineTo(this.wx(q.x), this.wy(q.y)) : ctx.moveTo(this.wx(q.x), this.wy(q.y))));
+        ctx.stroke();
+        // points coloured by speed: red = slowest, green = fastest
+        const span = p.to - p.from || 1;
+        p.points.forEach((q) => {
+          const pct = (q.v - p.from) / span;
+          const hue = Math.max(-20, Math.min(120, pct * 90));
+          ctx.fillStyle = `hsl(${hue}, 75%, 50%)`;
+          ctx.beginPath();
+          ctx.arc(this.wx(q.x), this.wy(q.y), Math.max(1.6, 0.42 * S), 0, Math.PI * 2);
+          ctx.fill();
+        });
+        ctx.globalAlpha = 1;
+        if (!p.selected) return;
+        // handles
+        p.segments.forEach((seg) => {
+          const c = seg.controls;
+          if (c.length === 4) {
+            ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.moveTo(this.wx(c[0].x), this.wy(c[0].y));
+            ctx.lineTo(this.wx(c[1].x), this.wy(c[1].y));
+            ctx.moveTo(this.wx(c[3].x), this.wy(c[3].y));
+            ctx.lineTo(this.wx(c[2].x), this.wy(c[2].y));
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+        });
+        p.controls.forEach((c) => {
+          if (!c.visible) return;
+          const x = this.wx(c.x);
+          const y = this.wy(c.y);
+          const sel = c.uid === edit.selCtrl;
+          ctx.beginPath();
+          if (c.__type === 'end-point') {
+            ctx.arc(x, y, Math.max(5, 1.5 * S), 0, Math.PI * 2);
+            ctx.fillStyle = sel ? C.guide : '#ffffff';
+            ctx.fill();
+            ctx.strokeStyle = p.locked ? '#888' : '#17191c';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          } else {
+            ctx.arc(x, y, Math.max(3.5, 1.0 * S), 0, Math.PI * 2);
+            ctx.fillStyle = sel ? C.guide : '#2f8f83';
+            ctx.fill();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+          }
+        });
       });
     }
 

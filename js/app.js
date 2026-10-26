@@ -16,6 +16,7 @@
     lang: 'cpp',
     routine: '',
     autonLimit: 15,
+    fieldStyle: 'photo-match',
   };
   const clone = (o) => JSON.parse(JSON.stringify(o));
   let S = clone(DEFAULTS);
@@ -116,6 +117,7 @@
     $('pathModeNote').innerHTML = PATH_MODE_NOTES[S.cfg.pathMode];
     $('lang').value = S.lang;
     $('autonLimit').value = String(S.autonLimit);
+    $('fieldStyle').value = S.fieldStyle;
     updateTopSpeed();
   }
 
@@ -130,7 +132,7 @@
   const KEY = 'vexAutonSim.v1';
   function save() {
     try {
-      localStorage.setItem(KEY, JSON.stringify({ S, code: $('code').value, files: pathFiles }));
+      localStorage.setItem(KEY, JSON.stringify({ S, code: $('code').value, files: pathFiles, project: V.PathTool.serialize() }));
     } catch (e) {
       /* storage unavailable: the sim still works */
     }
@@ -222,14 +224,33 @@
         continue;
       }
       const bytes = new Uint8Array(await f.arrayBuffer());
+      const binary = bytes.subarray(0, 256).includes(0);
+      const res = V.parsePathFile(f.name, binary ? bytes : new TextDecoder().decode(bytes));
+      warn.push(...res.warnings);
+      if (importEditable(res, f.name)) continue;
       pathFiles = pathFiles.filter((x) => x.name !== f.name);
       // binary files (LemLib v1.0) are kept as base64 so they survive a reload
-      if (bytes.subarray(0, 256).includes(0)) pathFiles.push({ name: f.name, b64: bytesToB64(bytes) });
+      if (binary) pathFiles.push({ name: f.name, b64: bytesToB64(bytes) });
       else pathFiles.push({ name: f.name, text: new TextDecoder().decode(bytes) });
     }
     rebuildPaths(warn);
     warn.forEach((w) => addLog('warn', w));
     settingsChanged();
+  }
+
+  /** files that carry the full jerry.io project open in the path editor */
+  function importEditable(res, fileName) {
+    const json = res.json;
+    if (!json || !Array.isArray(json.paths) || !json.paths.some((p) => p && Array.isArray(p.segments) && p.segments.length)) return false;
+    const added = V.PathTool.importJson(json, fileName);
+    if (!added.length) return false;
+    addLog('info', `${fileName}: ${added.length} editable path${added.length > 1 ? 's' : ''} (${added.map((p) => V.PathTool.idOf(p)).join(', ')})`);
+    return true;
+  }
+
+  function loadExamplePath() {
+    const res = V.parsePathFile(V.EXAMPLES.pathName, V.EXAMPLES.pathText);
+    importEditable(res, V.EXAMPLES.pathName);
   }
 
   function bytesToB64(bytes) {
@@ -282,7 +303,8 @@
       const c = currentCompiled();
       const logLines = [];
       c.warnings.forEach((w) => logLines.push(['warn', w]));
-      const missing = c.config.assets.filter((a) => !paths.some((p) => p.id === a || p.aliases.includes(a)));
+      const editorIds = V.PathTool.ids();
+      const missing = c.config.assets.filter((a) => !paths.some((p) => p.id === a || p.aliases.includes(a)) && !editorIds.includes(a));
       missing.forEach((a) => logLines.push(['warn', `ASSET(${a}): no matching path file loaded`]));
 
       const res = await V.runSimulation({
@@ -297,7 +319,7 @@
           speedUnit: p.speedUnit,
           ghost: p.ghost,
           endIdx: p.endIdx,
-        })),
+        })).concat(V.PathTool.runPaths()),
         chassisNames: ['chassis', c.config.chassisName],
         maxMs: 120000,
       });
@@ -453,6 +475,7 @@
       ghost: { x: S.start.x, y: S.start.y, h: S.start.h },
       ghostHandle: true,
       paths: $('optPaths').checked ? previewPaths() : null,
+      edit: $('optPaths').checked || V.PathTool.tool() === 'edit' ? V.PathTool.drawState() : null,
       codeAxes: $('optAxes').checked ? { x: S.start.x, y: S.start.y, h: S.start.h } : null,
     };
     if (f) {
@@ -524,8 +547,17 @@
       return Math.hypot(h.lx, h.ly - (S.robot.length / 2 + hr)) < 9 / renderer.scale + 2;
     };
 
+    const clientXY = (e) => ({ x: e.clientX, y: e.clientY });
+
     cv.addEventListener('pointerdown', (e) => {
       const w = pos(e);
+      if (V.PathTool.tool() === 'edit') {
+        if (V.PathTool.pointerDown(w, e, clientXY(e))) {
+          cv.setPointerCapture(e.pointerId);
+          e.preventDefault();
+        }
+        return;
+      }
       if (handleHit(w)) drag = { mode: 'rotate' };
       else {
         const h = hitRobot(w);
@@ -538,7 +570,9 @@
     });
     cv.addEventListener('pointermove', (e) => {
       const w = pos(e);
-      if (drag) {
+      const editing = V.PathTool.tool() === 'edit';
+      if (editing) V.PathTool.pointerMove(w, e, clientXY(e));
+      else if (drag) {
         if (drag.mode === 'move') {
           const lim = 72 - Math.max(S.robot.length, S.robot.width) / 2;
           S.start.x = Math.round(Math.min(lim, Math.max(-lim, w.x - drag.ox)) * 2) / 2;
@@ -556,16 +590,18 @@
         const c = fieldToCode(w.x, w.y);
         $('cursor').textContent = `field ${w.x.toFixed(1)}, ${w.y.toFixed(1)}   code ${c.x.toFixed(1)}, ${c.y.toFixed(1)}`;
       }
-      cv.style.cursor = drag ? 'grabbing' : handleHit(w) ? 'grab' : hitRobot(w).inside ? 'move' : 'crosshair';
+      cv.style.cursor = editing ? V.PathTool.cursor(w) : drag ? 'grabbing' : handleHit(w) ? 'grab' : hitRobot(w).inside ? 'move' : 'crosshair';
     });
     const end = (e) => {
-      if (drag) {
-        drag = null;
-        try { cv.releasePointerCapture(e.pointerId); } catch (err) { /* already released */ }
-      }
+      if (V.PathTool.tool() === 'edit') V.PathTool.pointerUp(pos(e), e, clientXY(e));
+      if (drag) drag = null;
+      try { cv.releasePointerCapture(e.pointerId); } catch (err) { /* already released */ }
     };
     cv.addEventListener('pointerup', end);
-    cv.addEventListener('pointercancel', end);
+    cv.addEventListener('pointercancel', (e) => {
+      drag = null;
+      try { cv.releasePointerCapture(e.pointerId); } catch (err) { /* already released */ }
+    });
   }
 
   // ------------------------------------------------------------------ import from code
@@ -610,15 +646,30 @@
       $('code').value = typeof saved.code === 'string' ? saved.code : V.EXAMPLES.code;
     } else {
       $('code').value = V.EXAMPLES.code;
-      pathFiles = [{ name: V.EXAMPLES.pathName, text: V.EXAMPLES.pathText }];
+      pathFiles = [];
     }
+    V.PathTool.init({
+      $,
+      renderer: () => renderer,
+      requestDraw,
+      changed: () => settingsChanged(),
+      getStart: () => S.start,
+      log: addLog,
+      topSpeedMps: () => ((S.robot.rpm / 60) * Math.PI * S.robot.wheelDiameter * (S.robot.speedPct / 100)) / 39.3701,
+    });
+    if (saved && saved.project) V.PathTool.load(saved.project);
+    else if (!saved) loadExamplePath();
+    renderer.onImageLoad = requestDraw;
+    renderer.setFieldStyle(S.fieldStyle);
     rebuildPaths();
     pushSettingsToUi();
 
     $('btnRun').addEventListener('click', () => runNow({ autoplay: true }));
     $('btnExample').addEventListener('click', () => {
       $('code').value = V.EXAMPLES.code;
-      pathFiles = [{ name: V.EXAMPLES.pathName, text: V.EXAMPLES.pathText }];
+      pathFiles = [];
+      V.PathTool.clear();
+      loadExamplePath();
       S.start = clone(DEFAULTS.start);
       rebuildPaths();
       pushSettingsToUi();
@@ -649,6 +700,12 @@
     $('routine').addEventListener('change', (e) => {
       S.routine = e.target.value;
       runNow({ autoplay: true });
+    });
+    $('fieldStyle').addEventListener('change', (e) => {
+      S.fieldStyle = e.target.value;
+      renderer.setFieldStyle(S.fieldStyle);
+      save();
+      requestDraw();
     });
     $('autonLimit').addEventListener('change', (e) => {
       S.autonLimit = parseInt(e.target.value, 10);
@@ -705,6 +762,7 @@
 
     window.addEventListener('keydown', (e) => {
       const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+      if (!typing && V.PathTool.key(e)) return;
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();
         runNow({ autoplay: true });

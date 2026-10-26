@@ -298,7 +298,8 @@
               default: return v;
             }
           };
-          const mode = chassis.pathMode;
+          // paths drawn in the editor live on the field, so "code frame" does not apply to them
+          const mode = p.forceField && chassis.pathMode === 'code' ? 'field' : chassis.pathMode;
           let shift = { x: 0, y: 0 };
           if (mode === 'relative') shift = { x: robot.x - src[0].x, y: robot.y - src[0].y };
           const pts = src.map((q) => {
