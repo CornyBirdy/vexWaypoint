@@ -160,8 +160,8 @@
         ch.swingToPoint(x, y, side, def(timeout, 10000), params, def(a, true)),
       follow: (path, lookahead, timeout, forwards, a) => {
         if (!path || !path.__path) throw new Error('follow(): first argument is not a loaded path file');
-        const pts = path.getPoints(ch);
-        return ch.follow(pts, path.name, def(lookahead, 15), def(timeout, 10000), def(forwards, true), def(a, true));
+        const { pts, endIdx } = path.getPath(ch);
+        return ch.follow(pts, endIdx, path.name, def(lookahead, 15), def(timeout, 10000), def(forwards, true), def(a, true));
       },
       waitUntil: (d) => ch.waitUntil(d),
       waitUntilDone: () => ch.waitUntilDone(),
@@ -270,17 +270,44 @@
       const obj = {
         __path: true,
         name: p.name,
-        getPoints(chassis) {
-          const mode = chassis.pathMode;
-          const pts = p.points;
-          if (mode === 'code') return pts.map((q) => ({ ...q }));
-          if (mode === 'relative') {
-            // keep the path as drawn, but slide it so its first point sits on the robot
-            const dx = chassis.robot.x - pts[0].x;
-            const dy = chassis.robot.y - pts[0].y;
-            return pts.map((q) => ({ ...chassis.fieldToCode(q.x + dx, q.y + dy), v: q.v }));
+        /** points in the code frame, speeds as motor commands, with a ghost tail for stopping */
+        getPath(chassis) {
+          const robot = chassis.robot;
+          const src = p.points.map((q) => ({ x: q.x, y: q.y, v: q.v }));
+          let endIdx = Math.min(src.length - 1, p.endIdx == null ? src.length - 1 : p.endIdx);
+          if (!p.ghost || endIdx >= src.length - 1) {
+            // LemLib paths end with a ghost point ahead of the real end; add one if the file has none
+            const e = src[endIdx];
+            let q = null;
+            for (let i = endIdx - 1; i >= 0; i--) {
+              if (Math.hypot(e.x - src[i].x, e.y - src[i].y) > 0.01) {
+                q = src[i];
+                break;
+              }
+            }
+            if (q) {
+              const d = Math.hypot(e.x - q.x, e.y - q.y);
+              src.splice(endIdx + 1, src.length, { x: e.x + ((e.x - q.x) / d) * 20, y: e.y + ((e.y - q.y) / d) * 20, v: 0 });
+            }
           }
-          return pts.map((q) => ({ ...chassis.fieldToCode(q.x, q.y), v: q.v }));
+          const toCmd = (v) => {
+            switch (p.speedUnit) {
+              case 'cmd255': return (v / 255) * 127;
+              case 'mps': return Math.min(127, ((v * 39.3701) / robot.vmax) * 127);
+              case 'rpm': return Math.min(127, (v / robot.p.rpm) * 127);
+              default: return v;
+            }
+          };
+          const mode = chassis.pathMode;
+          let shift = { x: 0, y: 0 };
+          if (mode === 'relative') shift = { x: robot.x - src[0].x, y: robot.y - src[0].y };
+          const pts = src.map((q) => {
+            const v = toCmd(q.v);
+            if (mode === 'code') return { x: q.x, y: q.y, v };
+            const c = chassis.fieldToCode(q.x + shift.x, q.y + shift.y);
+            return { x: c.x, y: c.y, v };
+          });
+          return { pts, endIdx };
         },
       };
       p.ids.forEach((id) => (lib[id] = obj));

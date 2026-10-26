@@ -1,55 +1,90 @@
 {
   "appVersion": "0.7.0",
-  "format": "LemLib v0.5 (inch)",
-  "uid": "example-project",
+  "format": "LemLib v0.4",
   "gc": {
     "robotWidth": 12,
     "robotHeight": 12,
     "robotIsHolonomic": false,
     "showRobot": true,
+    "uol": 2.54,
     "pointDensity": 2,
-    "controlMagnetDistance": 5.7
+    "controlMagnetDistance": 1.9685,
+    "coordinateSystem": "VEX Gaming Positioning System"
   },
   "paths": [
     {
-      "name": "Path 1",
-      "uid": "example-path",
-      "visible": true,
+      "name": "Path",
+      "uid": "examplepath",
       "lock": false,
+      "visible": true,
       "pc": {
         "speedLimit": {
           "minLimit": {
-            "value": 20,
-            "label": "20"
+            "value": 0,
+            "label": "0"
           },
-          "topLimit": {
-            "value": 100,
-            "label": "100"
-          }
+          "maxLimit": {
+            "value": 127,
+            "label": "127"
+          },
+          "step": 1,
+          "from": 20,
+          "to": 100
         },
-        "bentRate": {
-          "value": 0.1,
-          "label": "0.1"
-        }
+        "bentRateApplicableRange": {
+          "minLimit": {
+            "value": 0,
+            "label": "0"
+          },
+          "maxLimit": {
+            "value": 1,
+            "label": "1"
+          },
+          "step": 0.001,
+          "from": 0,
+          "to": 0.1
+        },
+        "maxDecelerationRate": 127
       },
       "segments": [
         {
+          "uid": "examplesegm",
+          "speedProfiles": [],
+          "lookaheadKeyframes": [],
           "controls": [
             {
+              "__type": "end-point",
+              "uid": "exampleend1",
+              "lock": false,
+              "visible": true,
               "x": -36,
-              "y": -36
+              "y": -36,
+              "heading": 0
             },
             {
+              "__type": "control",
+              "uid": "examplecp01",
+              "lock": false,
+              "visible": true,
               "x": -18,
               "y": -36
             },
             {
+              "__type": "control",
+              "uid": "examplecp02",
+              "lock": false,
+              "visible": true,
               "x": -30,
               "y": -14
             },
             {
+              "__type": "end-point",
+              "uid": "exampleend2",
+              "lock": false,
+              "visible": true,
               "x": -12,
-              "y": -12
+              "y": -12,
+              "heading": 0
             }
           ]
         }

@@ -134,62 +134,155 @@ const normDeg = (d) => ((((d + 180) % 360) + 360) % 360) - 180;
   near(normDeg(t.end.h), 180, 4, 'translated if+turn');
   console.log('ok C++ translation + config extraction', t.end);
 
-  // --- path parsing + follow
+  // --- path parsing + follow (plain "x, y, speed" lines are read as inches, 0..127)
+  const libOf = (p) => ({
+    ids: [p.id, ...p.aliases],
+    name: p.id,
+    points: V.pointsInInches(p),
+    speedUnit: p.speedUnit,
+    ghost: p.ghost,
+    endIdx: p.endIdx,
+  });
   const txt = [];
   for (let i = 0; i <= 30; i++) txt.push(`${(i * 2).toFixed(3)}, ${(0).toFixed(3)}, 100.000`);
-  const text = txt.join('\n') + '\nendData\n200\n#PATH.JERRYIO-DATA {"appVersion":"1","format":"LemLib v0.5 (inch)","paths":[]}\n';
-  const parsed = V.parsePathFile('my path.txt', text);
+  const parsed = V.parsePathFile('my path.txt', txt.join('\n') + '\n');
   assert.strictEqual(parsed.paths.length, 1);
   assert.strictEqual(parsed.paths[0].id, 'my_path_txt');
   assert.strictEqual(parsed.paths[0].points.length, 31);
-  const pp = parsed.paths[0];
-  const paths = [{ ids: [pp.id], name: pp.name, points: V.pointsInInches(pp) }];
-  // path runs along +x from field (0,0); robot starts at (0,0) facing +x (h=90)
+  const paths = [libOf(parsed.paths[0])];
   t = await run(`void autonomous(){ chassis.follow(my_path_txt, 12, 4000, true, false); }`, {
     paths,
     start: { x: 0, y: 0, h: 90 },
   });
-  near(t.end.x, 60, 3, 'follow end x');
+  near(t.end.x, 58, 3, 'follow end x');
   near(t.end.y, 0, 2, 'follow end y');
   console.log('ok follow (field mode)', t.end);
 
-  // --- jerryio JSON
-  const json = {
-    format: 'LemLib v0.5 (inch)',
-    gc: { pointDensity: 2 },
+  // --- real .jerryio project JSON: gc.uol is cm-per-unit (2.54 = inch), controls in that unit
+  const project = (uol, scale) => ({
+    appVersion: '0.7.0',
+    format: 'LemLib v0.4',
+    gc: { uol, pointDensity: 2 * scale, coordinateSystem: 'VEX Gaming Positioning System' },
     paths: [
       {
         name: 'Path 1',
+        uid: 'abcdefghij',
         segments: [
-          { controls: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 30 }, { x: 40, y: 30 }] },
-          { controls: [{ x: 40, y: 30 }, { x: 60, y: 30 }] },
+          {
+            controls: [
+              { __type: 'end-point', x: 0, y: 0, heading: 0 }, { __type: 'control', x: 20 * scale, y: 0 },
+              { __type: 'control', x: 20 * scale, y: 30 * scale }, { __type: 'end-point', x: 40 * scale, y: 30 * scale, heading: 0 },
+            ],
+            speedProfiles: [],
+          },
+          { controls: [{ __type: 'end-point', x: 40 * scale, y: 30 * scale }, { __type: 'end-point', x: 60 * scale, y: 30 * scale }], speedProfiles: [] },
         ],
-        pc: { speedLimit: { minLimit: { value: 20 }, topLimit: { value: 100 } }, bentRate: 0.1 },
+        pc: {
+          speedLimit: { minLimit: { value: 0 }, maxLimit: { value: 127 }, from: 20, to: 100 },
+          bentRateApplicableRange: { from: 0, to: 0.1 },
+          maxDecelerationRate: 127,
+        },
       },
     ],
-  };
-  const pj = V.parsePathFile('curve.jerryio', JSON.stringify(json));
+  });
+  const pj = V.parsePathFile('curve.jerryio', JSON.stringify(project(2.54, 1)));
   assert.strictEqual(pj.paths.length, 1, pj.warnings.join(';'));
-  assert(pj.paths[0].points.length > 20);
-  const last = pj.paths[0].points.at(-1);
-  near(last.x, 60, 0.01, 'jerryio last x');
-  near(last.y, 30, 0.01, 'jerryio last y');
-  const p2 = pj.paths[0];
+  const jp = pj.paths[0];
+  assert.strictEqual(jp.unit, 'in');
+  assert(jp.points.length > 20);
+  near(jp.points.at(-1).x, 60, 0.01, 'jerryio last x');
+  near(jp.points.at(-1).y, 30, 0.01, 'jerryio last y');
+  assert.strictEqual(jp.points.at(-2).v, 0, 'speed at the path end is 0');
+  assert(jp.points[0].v >= 20 && jp.points[0].v <= 100, 'first speed within the limits');
+  const mid = Math.max(...jp.points.map((q) => q.v));
+  assert(mid <= 100.0001, 'speed never above the limit');
+  // same path authored in cm gives the same inches
+  const pcm = V.parsePathFile('curve_cm.jerryio', JSON.stringify(project(1, 2.54)));
+  near(V.pointsInInches(pcm.paths[0]).at(-1).x, 60, 0.01, 'cm project converted to inches');
   t = await run(`void autonomous(){ chassis.follow(curve_jerryio, 12, 6000, true, false); }`, {
-    paths: [{ ids: [p2.id], name: p2.name, points: V.pointsInInches(p2) }],
+    paths: [libOf(jp)],
     start: { x: 0, y: 0, h: 90 },
   });
   near(t.end.x, 60, 3.5, 'jerryio follow x');
   near(t.end.y, 30, 3.5, 'jerryio follow y');
-  console.log('ok jerryio json follow', t.end, 'in', t.end.t, 'ms');
+  console.log('ok jerryio project follow', t.end, 'in', t.end.t, 'ms');
 
-  // --- relative path mode shifts path to the robot
+  // --- LemLib v0.4 text export: points (+ ghost), endData, decel, max speed, 200, segments, json
+  const pts04 = jp.points.map((q) => `${q.x.toFixed(3)}, ${q.y.toFixed(3)}, ${q.v.toFixed(3)}`);
+  const lastP = jp.points.at(-1);
+  const ghost = `${(lastP.x + 20).toFixed(3)}, ${lastP.y.toFixed(3)}, 0`;
+  const text04 = [...pts04, ghost, 'endData', '127', '100', '200', '0, 0, 20, 0, 20, 30, 40, 30', '40, 30, 50, 30, 50, 30, 60, 30'].join('\n') +
+    '\n#PATH.JERRYIO-DATA ' + JSON.stringify(project(2.54, 1));
+  const p04 = V.parsePathFile('route.txt', text04);
+  assert.strictEqual(p04.paths.length, 1, p04.warnings.join(';'));
+  assert.strictEqual(p04.paths[0].points.length, jp.points.length + 1, 'ghost kept as the last point');
+  assert.strictEqual(p04.paths[0].ghost, true);
+  assert.strictEqual(p04.paths[0].endIdx, jp.points.length - 1);
+  assert.strictEqual(p04.paths[0].unit, 'in');
+  t = await run(`void autonomous(){ chassis.follow(route_txt, 12, 6000, true, false); }`, { paths: [libOf(p04.paths[0])], start: { x: 0, y: 0, h: 90 } });
+  near(t.end.x, 60, 3.5, 'v0.4 text follow x');
+  near(t.end.y, 30, 3.5, 'v0.4 text follow y');
+  console.log('ok LemLib v0.4 text', t.end);
+
+  // --- tarball: several `#PATH-POINTS-START` blocks, speeds 0..255
+  const blk = (name, y) => [`#PATH-POINTS-START ${name}`, '0, ' + y + ', 255', '10, ' + y + ', 255', '20, ' + y + ', 128', '30, ' + y + ', 0', 'endData'].join('\n');
+  const tar = V.parsePathFile('multi.txt', [blk('First', 0), blk('Second leg', 10), '#PATH.JERRYIO-DATA ' + JSON.stringify({ format: 'LemLib Tarball v0.5', paths: [] })].join('\n'));
+  assert.strictEqual(tar.paths.length, 2);
+  assert.strictEqual(tar.paths[0].speedUnit, 'cmd255');
+  assert(tar.paths[1].aliases.includes('Second_leg') || tar.paths[1].id === 'Second_leg');
+  console.log('ok tarball blocks', tar.paths.map((q) => q.id + '/' + q.aliases.join('|')));
+
+  // --- path.jerryio v0.1: cm, rpm, no endData
+  const pdj = V.parsePathFile('plain.txt', ['#PATH-POINTS-START Only', '0,0,100', '25.4,0,100,90', '50.8,0,50', '#PATH.JERRYIO-DATA {"format":"path.jerryio v0.1","paths":[]}'].join('\n'));
+  assert.strictEqual(pdj.paths[0].unit, 'cm');
+  assert.strictEqual(pdj.paths[0].speedUnit, 'rpm');
+  near(V.pointsInInches(pdj.paths[0]).at(-1).x, 20, 0.001, 'cm -> inches');
+
+  // --- LemLib v1.0 binary: mm, m/s (built here with the documented byte layout)
+  function writeV1(pathsIn, jsonObj) {
+    const bytes = [];
+    const u8 = (v) => bytes.push(v & 255);
+    const i16 = (v) => { const b = Buffer.alloc(2); b.writeInt16LE(v); bytes.push(...b); };
+    const u16 = (v) => { const b = Buffer.alloc(2); b.writeUInt16LE(v); bytes.push(...b); };
+    const u32 = (v) => { const b = Buffer.alloc(4); b.writeUInt32LE(v); bytes.push(...b); };
+    const str = (s) => { bytes.push(...Buffer.from(s, 'latin1')); bytes.push(0); };
+    u8(4); u32(0); u16(pathsIn.length);
+    pathsIn.forEach((pp) => {
+      str(pp.name); u8(0); u16(pp.pts.length);
+      pp.pts.forEach(([x, y, v, heading]) => {
+        u8(heading != null ? 1 : 0); i16(Math.round(x * 2)); i16(Math.round(y * 2)); i16(Math.round(v * 1000));
+        if (heading != null) u16(Math.round(heading * 10000));
+      });
+    });
+    const size = bytes.length;
+    const sz = Buffer.alloc(4); sz.writeUInt32LE(size); [0, 1, 2, 3].forEach((i) => (bytes[1 + i] = sz[i]));
+    str('#PATH.JERRYIO-DATA');
+    bytes.push(...Buffer.from(JSON.stringify(jsonObj)));
+    return new Uint8Array(bytes);
+  }
+  const bin = writeV1(
+    [{ name: 'Leg A', pts: [[0, 0, 1.2, 1.5], [508, 0, 1.2], [1016, 0, 0.6], [1524, 0, 0]] }, { name: 'Leg B', pts: [[0, 0, 1], [100, 100, 1]] }],
+    { format: 'LemLib v1.0', gc: { uol: 0.1 }, paths: [] }
+  );
+  const pb = V.parsePathFile('auton.bin', bin);
+  assert.strictEqual(pb.paths.length, 2, pb.warnings.join(';'));
+  assert.strictEqual(pb.paths[0].unit, 'mm');
+  assert.strictEqual(pb.paths[0].speedUnit, 'mps');
+  near(V.pointsInInches(pb.paths[0]).at(-1).x, 60, 0.01, 'mm -> inches');
+  near(pb.paths[0].points[1].v, 1.2, 0.001, 'm/s speed');
+  assert(pb.paths[0].aliases.includes('Leg_A') || pb.paths[0].id === 'Leg_A');
+  // m/s speeds become motor commands relative to what the robot can do (68.9 in/s max here)
+  t = await run(`void autonomous(){ chassis.follow(Leg_A, 12, 6000, true, false); }`, { paths: [libOf(pb.paths[0])], start: { x: 0, y: 0, h: 90 } });
+  near(t.end.x, 58, 4, 'v1.0 binary follow x');
+  console.log('ok LemLib v1.0 binary', t.end);
+
+  // --- relative path mode shifts the path (as drawn) so it starts on the robot
   t = await run(`void autonomous(){ chassis.follow(my_path_txt, 12, 4000, true, false); }`, {
     paths,
     start: { x: -30, y: 20, h: 90 },
     cfgExtra: { pathMode: 'relative' },
   });
-  near(t.end.x, 30, 3, 'relative follow end x');
+  near(t.end.x, 28, 3, 'relative follow end x');
   near(t.end.y, 20, 2, 'relative follow end y');
   console.log('ok follow (relative mode)', t.end);
 

@@ -155,7 +155,7 @@
     const old = new Map(paths.map((p) => [p.id, p]));
     paths = [];
     pathFiles.forEach((f) => {
-      const res = V.parsePathFile(f.name, f.text);
+      const res = V.parsePathFile(f.name, f.text != null ? f.text : b64ToBytes(f.b64));
       (warnOut || []).push(...res.warnings);
       res.paths.forEach((p) => {
         const prev = old.get(p.id);
@@ -179,7 +179,7 @@
         <span class="sw" style="background:${p.color}"></span>
         <span class="nm"><b title="${esc(p.name)}">${esc(p.name)}</b>
           <button class="id" type="button" title="Click to copy the name to use in chassis.follow()">${esc(p.id)}</button>
-          <span class="meta">${p.points.length} pts &middot; ${len.toFixed(0)} in${p.approximate ? ' &middot; approx. speeds' : ''}</span></span>
+          <span class="meta">${p.points.length} pts &middot; ${len.toFixed(0)} in${p.recomputed ? ' &middot; recomputed from controls' : ''}</span></span>
         <select title="Units used in the file" aria-label="Units in ${esc(p.name)}">
           ${['in', 'cm', 'mm', 'm'].map((u) => `<option value="${u}"${(p.unitOverride || p.unit) === u ? ' selected' : ''}>${u}</option>`).join('')}
         </select>
@@ -208,7 +208,7 @@
   }
 
   function pathLength(p) {
-    const pts = V.pointsInInches(p, p.unitOverride);
+    const pts = V.pointsInInches(p, p.unitOverride).slice(0, p.endIdx + 1);
     let d = 0;
     for (let i = 1; i < pts.length; i++) d += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
     return d;
@@ -221,13 +221,27 @@
         warn.push(`${f.name}: file is larger than 5 MB, skipped`);
         continue;
       }
-      const text = await f.text();
+      const bytes = new Uint8Array(await f.arrayBuffer());
       pathFiles = pathFiles.filter((x) => x.name !== f.name);
-      pathFiles.push({ name: f.name, text });
+      // binary files (LemLib v1.0) are kept as base64 so they survive a reload
+      if (bytes.subarray(0, 256).includes(0)) pathFiles.push({ name: f.name, b64: bytesToB64(bytes) });
+      else pathFiles.push({ name: f.name, text: new TextDecoder().decode(bytes) });
     }
     rebuildPaths(warn);
     warn.forEach((w) => addLog('warn', w));
     settingsChanged();
+  }
+
+  function bytesToB64(bytes) {
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  }
+  function b64ToBytes(b64) {
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
   }
 
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -276,7 +290,14 @@
         robot: S.robot,
         start: S.start,
         cfg: { lateral: S.lateral, angular: S.angular, trackWidth: S.robot.trackWidth, horizontalDrift: S.cfg.horizontalDrift, pathMode: S.cfg.pathMode },
-        paths: paths.map((p) => ({ ids: [p.id, ...p.aliases], name: p.id, points: V.pointsInInches(p, p.unitOverride) })),
+        paths: paths.map((p) => ({
+          ids: [p.id, ...p.aliases],
+          name: p.id,
+          points: V.pointsInInches(p, p.unitOverride),
+          speedUnit: p.speedUnit,
+          ghost: p.ghost,
+          endIdx: p.endIdx,
+        })),
         chassisNames: ['chassis', c.config.chassisName],
         maxMs: 120000,
       });
@@ -388,7 +409,7 @@
 
   function previewPaths() {
     return paths.map((p) => {
-      const pts = V.pointsInInches(p, p.unitOverride);
+      const pts = V.pointsInInches(p, p.unitOverride).slice(0, p.endIdx + 1);
       let out = pts;
       if (S.cfg.pathMode === 'code') out = pts.map((q) => codeToField(q.x, q.y));
       else if (S.cfg.pathMode === 'relative') {

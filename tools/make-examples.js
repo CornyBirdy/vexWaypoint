@@ -5,28 +5,50 @@ const path = require('path');
 for (const f of ['lemlib', 'paths']) require(path.join('..', 'js', f + '.js'));
 const V = globalThis.VSim;
 
+const ctl = (type, uid, x, y, heading) => ({ __type: type, uid, lock: false, visible: true, x, y, ...(heading != null ? { heading } : {}) });
 const project = {
   appVersion: '0.7.0',
-  format: 'LemLib v0.5 (inch)',
-  uid: 'example-project',
-  gc: { robotWidth: 12, robotHeight: 12, robotIsHolonomic: false, showRobot: true, pointDensity: 2, controlMagnetDistance: 5.7 },
+  format: 'LemLib v0.4',
+  gc: {
+    robotWidth: 12, robotHeight: 12, robotIsHolonomic: false, showRobot: true, uol: 2.54, pointDensity: 2,
+    controlMagnetDistance: 1.9685, coordinateSystem: 'VEX Gaming Positioning System',
+  },
   paths: [
     {
-      name: 'Path 1',
-      uid: 'example-path',
-      visible: true,
+      name: 'Path',
+      uid: 'examplepath',
       lock: false,
-      pc: { speedLimit: { minLimit: { value: 20, label: '20' }, topLimit: { value: 100, label: '100' } }, bentRate: { value: 0.1, label: '0.1' } },
+      visible: true,
+      pc: {
+        speedLimit: { minLimit: { value: 0, label: '0' }, maxLimit: { value: 127, label: '127' }, step: 1, from: 20, to: 100 },
+        bentRateApplicableRange: { minLimit: { value: 0, label: '0' }, maxLimit: { value: 1, label: '1' }, step: 0.001, from: 0, to: 0.1 },
+        maxDecelerationRate: 127,
+      },
       segments: [
-        { controls: [{ x: -36, y: -36 }, { x: -18, y: -36 }, { x: -30, y: -14 }, { x: -12, y: -12 }] },
+        {
+          uid: 'examplesegm',
+          speedProfiles: [],
+          lookaheadKeyframes: [],
+          controls: [
+            ctl('end-point', 'exampleend1', -36, -36, 0), ctl('control', 'examplecp01', -18, -36),
+            ctl('control', 'examplecp02', -30, -14), ctl('end-point', 'exampleend2', -12, -12, 0),
+          ],
+        },
       ],
     },
   ],
 };
 const parsed = V.parsePathFile('example.jerryio', JSON.stringify(project));
-const pts = parsed.paths[0].points;
-const txt = pts.map((p) => `${p.x.toFixed(3)}, ${p.y.toFixed(3)}, ${p.v.toFixed(3)}`).join('\n') +
-  '\nendData\n#PATH.JERRYIO-DATA ' + JSON.stringify(project) + '\n';
+const pts = parsed.paths[0].points; // uniform points, end point repeated once
+// LemLib v0.4 text: points, a ghost point 20 in past the end, endData, decel rate, max speed, 200, segments, project JSON
+const a2 = pts[pts.length - 3];
+const b2 = pts[pts.length - 2];
+const gd = Math.hypot(b2.x - a2.x, b2.y - a2.y);
+const ghost = { x: b2.x + ((b2.x - a2.x) / gd) * 20, y: b2.y + ((b2.y - a2.y) / gd) * 20 };
+const f3 = (n) => n.toFixed(3);
+const seg = project.paths[0].segments[0].controls.map((c) => `${c.x}, ${c.y}`).join(', ');
+const txt = pts.map((p) => `${f3(p.x)}, ${f3(p.y)}, ${f3(p.v)}`).join('\n') +
+  `\n${f3(ghost.x)}, ${f3(ghost.y)}, 0\nendData\n127\n100\n200\n${seg}\n#PATH.JERRYIO-DATA ${JSON.stringify(project)}`;
 
 fs.writeFileSync('examples/example.jerryio', JSON.stringify(project, null, 2) + '\n');
 fs.writeFileSync('examples/example.txt', txt);

@@ -374,11 +374,16 @@
     return -1;
   }
 
-  /** pure pursuit along a list of {x, y, v} points (v = 0..127) */
+  /**
+   * Pure pursuit along a list of {x, y, v} points (v = 0..127). Points after
+   * `endIdx` are the "ghost" tail LemLib paths carry past the real end: the robot
+   * chases it for a smooth stop but finishes at pts[endIdx].
+   */
   class FollowMotion extends Motion {
-    constructor(ch, pts, lookahead, timeout, forwards, pathName) {
+    constructor(ch, pts, endIdx, lookahead, timeout, forwards, pathName) {
       super(ch, 'follow', [pathName, fmt(lookahead), timeout].join(', '), timeout);
       this.pts = pts;
+      this.endIdx = endIdx;
       this.lookahead = lookahead;
       this.forwards = forwards !== false;
       this.closest = 0;
@@ -393,7 +398,7 @@
     step() {
       const ch = this.ch;
       const pts = this.pts;
-      const n = pts.length;
+      const n = this.endIdx + 1; // real points; anything after is the ghost tail
       const pose = ch.poseRad();
       if (!this.forwards) pose.t += PI;
       if (this.last) this.dist += Math.hypot(pose.x - this.last.x, pose.y - this.last.y);
@@ -420,11 +425,9 @@
       this.prevEndDist = endDist;
       if (this.timedOut()) return 'timeout';
 
-      // lookahead point
-      if (endDist < this.lookahead) {
-        this.la = { x: end.x, y: end.y };
-      } else {
-        const limit = Math.min(n - 1, this.laIdx + 60);
+      // lookahead point: the circle around the robot meets the path (or its ghost tail) ahead
+      {
+        const limit = Math.min(pts.length - 1, this.laIdx + 60);
         for (let i = this.laIdx; i < limit; i++) {
           const t = circleIntersect(pts[i], pts[i + 1], pose, this.lookahead);
           if (t >= 0 && (i > this.laIdx || t >= this.laT)) {
@@ -649,8 +652,8 @@
       );
     }
     /** `pathPts` are already in the code frame */
-    follow(pathPts, pathName, lookahead, timeout, forwards = true, isAsync = true) {
-      return this._start(new FollowMotion(this, pathPts, lookahead, timeout, forwards, pathName), isAsync);
+    follow(pathPts, endIdx, pathName, lookahead, timeout, forwards = true, isAsync = true) {
+      return this._start(new FollowMotion(this, pathPts, endIdx, lookahead, timeout, forwards, pathName), isAsync);
     }
 
     async waitUntil(dist) {
