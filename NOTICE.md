@@ -40,4 +40,6 @@ follow, PID, exit conditions, motion queueing and chaining) are a JavaScript por
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 > SOFTWARE.
 
+The Invictus 52111A logo (`assets/invictus-52111a*.svg`) is the team's mark, traced into SVG from their PNG logo.
+
 Everything else (the simulator, physics, C++ translator, Rack launchers) is original to this project.
