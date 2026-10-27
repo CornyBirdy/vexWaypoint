@@ -748,9 +748,10 @@
 
     // transport
     $('btnPlay').addEventListener('click', togglePlay);
+    // rewind to the start and wait there; Play starts it
     $('btnRestart').addEventListener('click', () => {
       simMs = 0;
-      playing = !!(result && result.frames);
+      playing = false;
       syncPlayButton();
       requestDraw();
     });
