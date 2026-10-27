@@ -28,7 +28,7 @@ try {
     Write-Host "Could not listen on port ${Port}: $($_.Exception.Message)"
     exit 1
 }
-Write-Host "VEX Auton Sim serving $root"
+Write-Host "Waypoint serving $root"
 Write-Host "Listening on http://127.0.0.1:$Port/"
 
 try {

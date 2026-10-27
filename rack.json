@@ -1,5 +1,5 @@
 {
-  "name": "VEX Auton Sim",
+  "name": "Waypoint",
   "category": "VEX",
   "autostart": false,
   "setup": "setup.bat",
