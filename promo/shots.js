@@ -47,57 +47,58 @@ void autonomous() {
   const DRAW_PTS = [[-38, -8], [-2, 22], [40, 48]];
   const drawMouse = () => {
     const m = [];
-    m.push(click(0.6, { sel: '#toolEdit' }, 0.5, { from: { app: [420, 860] } }));
-    let t = 1.2;
+    m.push(click(1.0, { sel: '#toolEdit' }, 0.9, { from: { app: [420, 860] } }));
+    let t = 2.3;
     DRAW_PTS.forEach((p, i) => {
-      m.push(click(t, { field: p }, i ? 0.3 : 0.4));
-      m.push(click(t + 0.45, { sel: '#popup .btn:nth-child(1)' }, 0.25));
-      t += 0.92;
+      m.push(click(t, { field: p }, i ? 0.55 : 0.7));
+      m.push(click(t + 0.5, { sel: '#popup .btn:nth-child(1)' }, 0.3));
+      t += 1.25;
     });
     return { m, t };
   };
   const draw = drawMouse();
 
+  // Pace: everything sits on a 96 BPM grid (one beat = 0.625 s) so the score can follow the picture.
   const SHOTS = [
-    { id: 'logo', kind: 'logo', t0: 0.0, t1: 3.0 },
-    { id: 'title', kind: 'title', t0: 3.0, t1: 5.0 },
+    { id: 'logo', kind: 'logo', t0: 0.0, t1: 3.75 },
+    { id: 'title', kind: 'title', t0: 3.75, t1: 6.875 },
 
     // 01 run ------------------------------------------------------------
     {
       id: 'run',
       kind: 'app',
-      t0: 5.0,
-      t1: 10.0,
-      cap: { kicker: '01 &middot; Run', lines: ['Paste your', 'auton.', '<em>Hit run.</em>'], sub: 'Your real <b>LemLib</b> code, simulated end to end.', t0: 0.2, t1: 4.6 },
+      t0: 6.875,
+      t1: 16.875,
+      cap: { kicker: '01 &middot; Run', lines: ['Paste your', 'auton.', '<em>Hit run.</em>'], sub: 'Your real <b>LemLib</b> code, simulated end to end.', t0: 0.4, t1: 9.3 },
       setup: async (A) => {
         BASE(A);
         collapse(A, 'start pose', 'drivetrain', 'paths', 'selected path');
-        A.change(A.$('speed'), '2');
+        A.change(A.$('speed'), '1');
         A.$('code').value = '';
       },
       camera: [
         { t: 0, rect: { x: 0, y: 0, w: 1200, h: 830 }, pad: 10 },
-        { t: 0.8, rect: { x: 800, y: 0, w: 400, h: 780 }, pad: 30 },
-        { t: 1.95, rect: { x: 800, y: 0, w: 400, h: 780 }, pad: 30 },
-        { t: 2.8, rect: { x: 60, y: 40, w: 700, h: 880 }, pad: 30 },
+        { t: 1.3, rect: { x: 800, y: 0, w: 400, h: 780 }, pad: 30 },
+        { t: 3.5, rect: { x: 800, y: 0, w: 400, h: 780 }, pad: 30 },
+        { t: 4.8, rect: { x: 60, y: 40, w: 700, h: 880 }, pad: 30 },
       ],
       mouse: [
-        move(0.85, { sel: '#code', fx: 0.45, fy: 0.4 }, 0.7, { from: { app: [600, 700] } }),
-        click(0.9, { sel: '#code', fx: 0.45, fy: 0.4 }, 0.05),
-        click(1.75, { sel: '#btnRun' }, 0.6),
-        move(2.9, { app: [700, 640] }, 0.8),
-        { t: 3.6, dur: 0, hide: true },
+        move(1.5, { sel: '#code', fx: 0.45, fy: 0.4 }, 1.0, { from: { app: [600, 700] } }),
+        click(1.55, { sel: '#code', fx: 0.45, fy: 0.4 }, 0.05),
+        click(3.1, { sel: '#btnRun' }, 1.1),
+        move(4.5, { app: [700, 640] }, 1.0),
+        { t: 5.6, dur: 0, hide: true },
       ],
-      actions: [{ t: 1.15, run: (A) => A.set(A.$('code'), A.V.EXAMPLES.code) }],
+      actions: [{ t: 1.9, run: (A) => A.set(A.$('code'), A.V.EXAMPLES.code) }],
     },
 
     // 02 draw -----------------------------------------------------------
     {
       id: 'draw',
       kind: 'app',
-      t0: 10.0,
-      t1: 16.0,
-      cap: { kicker: '02 &middot; Draw', lines: ['Draw paths', '<em>on the field.</em>'], sub: 'Curves, lines and speed keyframes. Import and export <b>jerry.io</b>.', t0: 0.2, t1: 5.6 },
+      t0: 16.875,
+      t1: 26.25,
+      cap: { kicker: '02 &middot; Draw', lines: ['Draw paths', '<em>on the field.</em>'], sub: 'Curves, lines and speed keyframes. Import and export <b>jerry.io</b>.', t0: 0.4, t1: 8.8 },
       setup: async (A) => {
         A.click('#projList .x');
         await flush();
@@ -105,22 +106,22 @@ void autonomous() {
         A.click('#btnRun');
         await flush();
         BASE(A);
-        A.change(A.$('speed'), '4');
+        A.change(A.$('speed'), '2');
         collapse(A, 'start pose', 'drivetrain');
       },
       // the speed graph pushes the transport bar below the window: scroll the page, like a user would
-      onFrame: (A, lt, E) => A.win.scrollTo(0, 96 * E.io(Math.min(1, Math.max(0, (lt - 3.1) / 0.6)))),
+      onFrame: (A, lt, E) => A.win.scrollTo(0, 96 * E.io(Math.min(1, Math.max(0, (lt - 5.0) / 0.8)))),
       camera: [
         { t: 0, rect: { x: 60, y: 40, w: 710, h: 740 }, pad: 20 },
-        { t: 3.0, rect: { x: 60, y: 40, w: 710, h: 740 }, pad: 20 },
-        { t: 3.7, rect: { x: 60, y: 0, w: 710, h: 900 }, pad: 20 },
-        { t: 4.7, rect: { x: 60, y: 0, w: 710, h: 900 }, pad: 20 },
-        { t: 5.4, rect: { x: 60, y: -10, w: 710, h: 720 }, pad: 20 },
+        { t: 5.0, rect: { x: 60, y: 40, w: 710, h: 740 }, pad: 20 },
+        { t: 5.9, rect: { x: 60, y: 0, w: 710, h: 900 }, pad: 20 },
+        { t: 7.4, rect: { x: 60, y: 0, w: 710, h: 900 }, pad: 20 },
+        { t: 8.5, rect: { x: 60, y: -10, w: 710, h: 720 }, pad: 20 },
       ],
       mouse: draw.m.concat([
-        click(draw.t + 0.05, { sel: '#speedGraph', fx: 0.5, fy: 0.25 }, 0.3),
-        click(draw.t + 0.6, { sel: '#btnPlay' }, 0.35),
-        move(draw.t + 1.5, { app: [900, 700] }, 0.8),
+        click(draw.t - 0.1, { sel: '#speedGraph', fx: 0.5, fy: 0.25 }, 0.5),
+        click(draw.t + 0.7, { sel: '#btnPlay' }, 0.6),
+        move(draw.t + 1.7, { app: [900, 700] }, 0.9),
       ]),
       actions: [],
     },
@@ -129,35 +130,35 @@ void autonomous() {
     {
       id: 'tune',
       kind: 'app',
-      t0: 16.0,
-      t1: 20.0,
-      cap: { kicker: '03 &middot; Tune', lines: ['Tune it', '<em>live.</em>'], sub: 'Change the drivetrain and see if you beat the clock.', t0: 0.2, t1: 3.6 },
+      t0: 26.25,
+      t1: 31.875,
+      cap: { kicker: '03 &middot; Tune', lines: ['Tune it', '<em>live.</em>'], sub: 'Change the drivetrain and see if you beat the clock.', t0: 0.4, t1: 5.0 },
       setup: async (A) => {
         BASE(A);
         collapse(A, 'start pose', 'paths', 'selected path');
         expand(A, 'drivetrain');
         toEnd(A);
       },
-      camera: [{ t: 0, rect: { x: 60, y: 80, w: 1130, h: 830 }, pad: 20 }, { t: 3.8, rect: { x: 60, y: 80, w: 1130, h: 830 }, pad: 6 }],
+      camera: [{ t: 0, rect: { x: 60, y: 80, w: 1130, h: 830 }, pad: 20 }, { t: 5.6, rect: { x: 60, y: 80, w: 1130, h: 830 }, pad: 6 }],
       // portrait: zoom on the drivetrain panel, where the numbers change, then pull back for the result
       cameraV: [
         { t: 0, rect: { x: 60, y: 80, w: 1130, h: 830 }, pad: 10 },
-        { t: 0.7, rect: { x: 800, y: 120, w: 400, h: 470 }, pad: 20 },
-        { t: 3.0, rect: { x: 800, y: 120, w: 400, h: 470 }, pad: 20 },
-        { t: 3.7, rect: { x: 60, y: 80, w: 1130, h: 830 }, pad: 10 },
+        { t: 1.2, rect: { x: 800, y: 120, w: 400, h: 470 }, pad: 20 },
+        { t: 4.0, rect: { x: 800, y: 120, w: 400, h: 470 }, pad: 20 },
+        { t: 4.9, rect: { x: 60, y: 80, w: 1130, h: 830 }, pad: 10 },
       ],
       mouse: [
-        move(0.5, { sel: 'input[data-key="robot.rpm"]' }, 0.8, { from: { app: [560, 820] } }),
-        click(1.9, { sel: 'input[data-key="robot.rpm"]', fx: 0.8 }, 0.5, { click: 'fake' }),
+        move(0.9, { sel: 'input[data-key="robot.rpm"]' }, 1.0, { from: { app: [560, 820] } }),
+        click(3.1, { sel: 'input[data-key="robot.rpm"]', fx: 0.8 }, 0.6, { click: 'fake' }),
       ],
-      lens: { t0: 1.45, t1: 3.65, value: 'tLimit', label: (A) => `Drivetrain ${A.q('input[data-key="robot.rpm"]').value} rpm` },
+      lens: { t0: 2.0, t1: 5.15, value: 'tLimit', label: (A) => `Drivetrain ${A.q('input[data-key="robot.rpm"]').value} rpm` },
       tweens: [
-        { t: 0.6, dur: 0.5, el: 'input[data-key="robot.rpm"]', from: 450, to: 100, step: 5 },
-        { t: 2.0, dur: 0.5, el: 'input[data-key="robot.rpm"]', from: 100, to: 600, step: 5 },
+        { t: 0.9, dur: 0.9, el: 'input[data-key="robot.rpm"]', from: 450, to: 100, step: 5 },
+        { t: 3.1, dur: 0.9, el: 'input[data-key="robot.rpm"]', from: 100, to: 600, step: 5 },
       ],
       actions: [
-        { t: 1.6, run: (A) => toEnd(A) },
-        { t: 3.0, run: (A) => toEnd(A) },
+        { t: 2.5, run: (A) => toEnd(A) },
+        { t: 4.7, run: (A) => toEnd(A) },
       ],
     },
 
@@ -165,26 +166,26 @@ void autonomous() {
     {
       id: 'explore',
       kind: 'app',
-      t0: 20.0,
-      t1: 23.5,
-      cap: { kicker: '04 &middot; Explore', lines: ['Scrub every', '<em>second.</em>'], sub: 'Timeline, three field views, light and dark.', t0: 0.2, t1: 3.1 },
+      t0: 31.875,
+      t1: 37.5,
+      cap: { kicker: '04 &middot; Explore', lines: ['Scrub every', '<em>second.</em>'], sub: 'Timeline, three field views, light and dark.', t0: 0.4, t1: 5.0 },
       setup: async (A) => {
         BASE(A);
         collapse(A, 'start pose', 'paths', 'selected path', 'drivetrain');
       },
-      camera: [{ t: 0, rect: { x: 0, y: 0, w: 1200, h: 830 }, pad: 6 }, { t: 3.6, rect: { x: 0, y: 0, w: 1200, h: 830 }, pad: -10 }],
+      camera: [{ t: 0, rect: { x: 0, y: 0, w: 1200, h: 830 }, pad: 6 }, { t: 5.8, rect: { x: 0, y: 0, w: 1200, h: 830 }, pad: -10 }],
       mouse: [
-        move(0.4, { sel: '#scrub', fx: 0.0 }, 0.4, { from: { app: [500, 880] } }),
-        { t: 1.3, dur: 0.9, to: { sel: '#scrub', fx: 0.72 }, drag: true },
-        move(1.7, { sel: '#fieldStyle' }, 0.4),
-        click(1.85, { sel: '#fieldStyle' }, 0.1, { click: 'fake' }),
-        click(2.5, { sel: '#btnTheme' }, 0.5),
+        move(0.7, { sel: '#scrub', fx: 0.0 }, 0.7, { from: { app: [500, 880] } }),
+        { t: 2.6, dur: 1.8, to: { sel: '#scrub', fx: 0.72 }, drag: true },
+        move(3.2, { sel: '#fieldStyle' }, 0.6),
+        click(3.35, { sel: '#fieldStyle' }, 0.15, { click: 'fake' }),
+        click(4.3, { sel: '#btnTheme' }, 0.9),
       ],
-      actions: [{ t: 1.9, run: (A) => A.change(A.$('fieldStyle'), 'drawn') }],
+      actions: [{ t: 3.4, run: (A) => A.change(A.$('fieldStyle'), 'drawn') }],
     },
 
-    { id: 'grid', kind: 'grid', t0: 23.5, t1: 26.0 },
-    { id: 'end', kind: 'end', t0: 26.0, t1: 30.0 },
+    { id: 'grid', kind: 'grid', t0: 37.5, t1: 41.25 },
+    { id: 'end', kind: 'end', t0: 41.25, t1: 46.25 },
   ];
 
   const TILES = [
@@ -198,5 +199,5 @@ void autonomous() {
 
   const CUTS = SHOTS.slice(1).map((s) => s.t0);
 
-  window.PROMO = { SHOTS, TILES, CUTS, TOTAL: 30.0, FPS: 60, WIPE: 0.28, SITE_URL };
+  window.PROMO = { SHOTS, TILES, CUTS, TOTAL: 46.25, FPS: 60, WIPE: 0.4, SITE_URL };
 })();

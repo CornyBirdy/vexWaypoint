@@ -264,7 +264,7 @@
   }
 
   function sceneLogo(lt) {
-    const ms = Math.max(0, (lt - 0.3) * 1000);
+    const ms = Math.max(0, (lt - 0.4) * 1000);
     document.getAnimations().forEach((a) => {
       a.pause();
       a.currentTime = ms;
@@ -274,14 +274,14 @@
     logo.style.transformOrigin = `${407.2 * k}px ${114.6 * k}px`;
     logo.style.transform = `translate(${-(407.2 - 340) * k}px, ${-(114.6 - 110) * k}px) scale(${1 + 0.05 * clamp(lt / shot.dur)})`;
     logo.style.opacity = 1;
-    const q = E.io(clamp((lt - 1.35) / 1.0));
+    const q = E.io(clamp((lt - 1.9) / 1.3));
     const gx = lerp(80, 720, q);
     const g = $('gSheen');
     g.setAttribute('x1', gx - 90);
     g.setAttribute('x2', gx + 90);
     $('sheen').style.opacity = q > 0 && q < 1 ? 1 : 0;
     const pr = scenes.logo.querySelector('.presents');
-    const e = prog(lt, 1.7, 0.7, E.out5);
+    const e = prog(lt, 2.3, 0.9, E.out5);
     pr.style.opacity = e;
     pr.style.transform = `translateY(${(1 - e) * 16}px)`;
     pr.style.letterSpacing = `${lerp(0.9, 0.6, e)}em`;
@@ -289,17 +289,17 @@
 
   function sceneTitle(lt) {
     if (!nodesBuilt) buildTitle();
-    const w = prog(lt, 0.12, 0.8, E.expo);
+    const w = prog(lt, 0.2, 1.0, E.expo);
     $('wordClipRect').setAttribute('x', TITLE.clip.x);
     $('wordClipRect').setAttribute('y', TITLE.clip.y);
     $('wordClipRect').setAttribute('width', TITLE.clip.w * w);
     $('wordClipRect').setAttribute('height', TITLE.clip.h);
     const word = $('titleWord');
     word.style.transform = `translateX(${(1 - w) * -60}px)`;
-    const p = E.io(clamp((lt - 0.45) / 1.3));
+    const p = E.io(clamp((lt - 0.7) / 1.9));
     const len = trackLen * p;
     const base = $('trackBase');
-    base.style.opacity = prog(lt, 0.3, 0.4);
+    base.style.opacity = prog(lt, 0.5, 0.5);
     const done = $('trackDone');
     done.style.strokeDasharray = `${len} ${trackLen + 10}`;
     $('trackGlow').style.strokeDasharray = `${len} ${trackLen + 10}`;
@@ -307,13 +307,13 @@
     const pt2 = base.getPointAtLength(Math.min(trackLen, len + 2));
     const ang = (Math.atan2(pt2.x - pt.x, -(pt2.y - pt.y)) * 180) / Math.PI;
     const bot = $('botG');
-    const bs = prog(lt, 0.4, 0.4, E.back);
+    const bs = prog(lt, 0.6, 0.5, E.back);
     bot.setAttribute('transform', `translate(${pt.x} ${pt.y}) rotate(${p > 0.002 ? ang : 90}) scale(${bs * TITLE.bot})`);
     bot.style.opacity = bs > 0 ? 1 : 0;
     document.querySelectorAll('#nodes .node').forEach((n) => {
       const f = parseFloat(n.dataset.f);
       const reach = clamp((p - f) / 0.0001 + 1) >= 1 || p >= f;
-      const appear = prog(lt, 0.3 + f * 0.25, 0.35, E.back);
+      const appear = prog(lt, 0.5 + f * 0.35, 0.45, E.back);
       const hit = p >= f ? E.out5(clamp((p - f) / 0.12)) : 0;
       n.querySelector('.dot').setAttribute('transform', `scale(${appear * (1 + 0.35 * Math.sin(Math.PI * Math.min(1, hit * 1.2)))})`);
       n.querySelector('.dot').style.fill = p >= f ? '#c4b5fd' : '#ffffff';
@@ -322,7 +322,7 @@
       ring.setAttribute('transform', `scale(${1 + hit * 1.6})`);
     });
     const tag = $('titleTag');
-    const t = prog(lt, 1.1, 0.7, E.out5);
+    const t = prog(lt, 1.7, 0.9, E.out5);
     tag.style.opacity = t;
     tag.style.transform = `translateY(${(1 - t) * 18}px)`;
     tag.style.letterSpacing = `${lerp(0.8, 0.5, t)}em`;
@@ -344,26 +344,26 @@
     $('gridTitle').style.opacity = clamp(t * 2);
     $('gridTitle').style.transform = `skewX(-11deg) translateY(${(1 - t) * 40}px)`;
     document.querySelectorAll('.tile').forEach((el, i) => {
-      const e = prog(lt, 0.3 + i * 0.07, 0.6, E.expo);
+      const e = prog(lt, 0.45 + i * 0.12, 0.8, E.expo);
       el.style.opacity = clamp(e * 1.6);
       el.style.transform = `translateY(${(1 - e) * 60}px) scale(${lerp(0.94, 1, e)})`;
     });
   }
 
   function sceneEnd(lt) {
-    const w = prog(lt, 0.05, 0.9, E.expo);
+    const w = prog(lt, 0.1, 1.1, E.expo);
     const word = $('endWord');
     word.style.clipPath = `inset(-10% ${(1 - w) * 100}% -10% -5%)`;
     word.style.transform = `skewX(-11deg) translateX(${(1 - w) * -80}px)`;
-    const l = prog(lt, 0.5, 0.7, E.out5);
+    const l = prog(lt, 0.8, 0.8, E.out5);
     $('endLine').style.opacity = l;
     $('endLine').style.transform = `translateY(${(1 - l) * 24}px)`;
     document.querySelectorAll('#endChips .chip').forEach((c, i) => {
-      const e = prog(lt, 0.85 + i * 0.09, 0.55, E.back);
+      const e = prog(lt, 1.2 + i * 0.12, 0.6, E.back);
       c.style.opacity = clamp(e * 2);
       c.style.transform = `translateY(${(1 - e) * 28}px) scale(${lerp(0.9, 1, e)})`;
     });
-    const by = prog(lt, 1.4, 0.8, E.out5);
+    const by = prog(lt, 2.0, 0.9, E.out5);
     $('endBy').style.opacity = by;
     $('endBy').style.transform = `translateY(${(1 - by) * 14}px)`;
   }
