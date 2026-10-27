@@ -140,8 +140,28 @@
    * @param {object} pathLib  id -> {name, getPoints(): [{x,y,v}] in inches, file frame}
    * @param {string[]} chassisNames
    */
-  function buildScope(ch, clock, pathLib, chassisNames, log) {
+  function buildScope(ch, clock, pathLib, chassisNames, log, opts) {
     const NOOP = makeNoop();
+    // functions called by name that are not defined anywhere in the pasted code (e.g. resetAtGoalA())
+    const unknownCalls = new Set();
+    const unknownFns = new Map();
+    const unknownFn = (name) => {
+      let f = unknownFns.get(name);
+      if (!f) {
+        f = new Proxy(function () {}, {
+          get: (_t, k) => (k === 'then' ? undefined : k === Symbol.toPrimitive ? () => 0 : NOOP),
+          apply: () => {
+            unknownCalls.add(name);
+            return NOOP;
+          },
+          set: () => true,
+        });
+        unknownFns.set(name, f);
+      }
+      return f;
+    };
+    const warnedLoops = new Set();
+    const stuckMs = opts && opts.mechanismWaitMs != null ? opts.mechanismWaitMs : 500;
     const def = (v, d) => (v === undefined || v === null ? d : v);
 
     const api = {
@@ -183,6 +203,21 @@
       Pose: poseCtor,
       delay: (ms) => clock.sleep(ms),
       millis: () => clock.now,
+      // `while (cond) {...}` waiting on something that is not simulated (lift, claw): give up after a while
+      __loopStart: (cond) => ({ t0: clock.now, cond, warned: false }),
+      __stuck: (w) => {
+        if (/millis|isInMotion|waitUntil/.test(w.cond)) return false; // real waits on time / the drivetrain
+        if (ch.motion) {
+          w.t0 = clock.now;
+          return false;
+        }
+        if (clock.now - w.t0 < stuckMs) return false;
+        if (!warnedLoops.has(w.cond)) {
+          warnedLoops.add(w.cond);
+          log('warn', `while (${w.cond}) waits on something the sim does not run (lift, claw...); carried on after ${stuckMs} ms each time`);
+        }
+        return true;
+      },
       __guard: (() => {
         let n = 0;
         let lastT = -1;
@@ -210,13 +245,14 @@
     chassisNames.forEach((n) => (scope[n] = chassisObj));
     Object.keys(pathLib).forEach((id) => (scope[id] = pathLib[id]));
 
+    scope.__unknownCalls = unknownCalls;
     return new Proxy(scope, {
       has: (_t, k) => typeof k === 'string' && k !== '__scope',
       get: (t, k) => {
         if (k === Symbol.unscopables) return undefined;
         if (k in t) return t[k];
         if (typeof k === 'string' && k in globalThis && /^[A-Z]/.test(k)) return globalThis[k];
-        return NOOP;
+        return typeof k === 'string' ? unknownFn(k) : NOOP;
       },
       set: (t, k, v) => {
         t[k] = v;
@@ -315,7 +351,7 @@
     });
 
     const names = o.chassisNames && o.chassisNames.length ? o.chassisNames : ['chassis'];
-    const scope = buildScope(ch, clock, lib, names, log);
+    const scope = buildScope(ch, clock, lib, names, log, { mechanismWaitMs: o.mechanismWaitMs });
 
     const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
     let fn;
@@ -383,6 +419,8 @@
       }
     }
     if (!error) log('info', `Auton code finished at ${(clock.now / 1000).toFixed(2)} s`);
+    const missing = Array.from(scope.__unknownCalls || []).filter((n) => !/^(printf|print|lcd|puts)$/.test(n));
+    if (missing.length) log('info', `Not defined in your code, so skipped: ${missing.map((n) => n + '()').join(', ')}. If one moves the robot, paste its definition too.`);
 
     return { frames: F, events, motions, durationMs: clock.now, error, vmax: robot.vmax };
   }
