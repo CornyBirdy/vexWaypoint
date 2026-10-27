@@ -1,0 +1,206 @@
+/* Design tokens (Rack Suite). Every colour, radius, space and type size the app uses comes from here.
+   Theme: dark by default, light when the OS asks for it, or when <html data-theme="light|dark"> forces one
+   (js/theme.js sets that from the Theme button; no attribute = follow the OS). */
+
+/* ---- sizes, type (same in both themes) */
+:root {
+  --r-xs: 3px;
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 16px;
+
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-7: 32px;
+  --s-8: 48px;
+
+  --control-h: 32px;
+
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+}
+@media (pointer: coarse) {
+  :root { --control-h: 44px; }
+}
+
+/* ---- neutrals */
+:root {
+  --ground: #202124;
+  --surface-sunken: #1b1c1f;
+  --surface: #292a2d;
+  --surface-raised: #303134;
+  --surface-track: #3c4043;
+  --hairline: #3c4043;
+  --border-control: #9aa0a6;
+  --ink: #e8eaed;
+  --ink-muted: #a9aeb4;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --ground: #f6f8fc;
+    --surface-sunken: #eef1f7;
+    --surface: #ffffff;
+    --surface-raised: #f1f4f9;
+    --surface-track: #e1e5ec;
+    --hairline: #e1e4ea;
+    --border-control: #7a8088;
+    --ink: #1f2329;
+    --ink-muted: #5f6368;
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --ground: #f6f8fc;
+  --surface-sunken: #eef1f7;
+  --surface: #ffffff;
+  --surface-raised: #f1f4f9;
+  --surface-track: #e1e5ec;
+  --hairline: #e1e4ea;
+  --border-control: #7a8088;
+  --ink: #1f2329;
+  --ink-muted: #5f6368;
+  color-scheme: light;
+}
+
+/* ---- status: shared by every Rack Suite app, never changes with the accent */
+:root {
+  --success: #81c995;
+  --warning: #fdd663;
+  --danger: #f28b82;
+  --info: #8ab4f8;
+  --soft-a: 14%; /* strength of the -soft backgrounds */
+  --tint-hover: 8%; /* hover / pressed tint mixed into a fill */
+  --tint-press: 14%;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --success: #137333;
+    --warning: #8f5800;
+    --danger: #c5221f;
+    --info: #1967d2;
+    --soft-a: 10%;
+  }
+}
+:root[data-theme="light"] {
+  --success: #137333;
+  --warning: #8f5800;
+  --danger: #c5221f;
+  --info: #1967d2;
+  --soft-a: 10%;
+}
+:root {
+  --success-soft: color-mix(in srgb, var(--success) var(--soft-a), transparent);
+  --warning-soft: color-mix(in srgb, var(--warning) var(--soft-a), transparent);
+  --danger-soft: color-mix(in srgb, var(--danger) var(--soft-a), transparent);
+  --info-soft: color-mix(in srgb, var(--info) var(--soft-a), transparent);
+}
+
+/* ---- accent: violet. Swap this one block (three copies, one per theme case) to re-colour the app. */
+:root {
+  --accent: #a78bfa;
+  --on-accent: #1e1240;
+  --accent-text: #c4b5fd;
+  --accent-2: #fdd663;
+  --accent-3: #81c995;
+  --accent-soft-a: 14%;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --accent: #6d4aff;
+    --on-accent: #ffffff;
+    --accent-text: #5532d6;
+    --accent-2: #b06000;
+    --accent-3: #188038;
+    --accent-soft-a: 16%;
+  }
+}
+:root[data-theme="light"] {
+  --accent: #6d4aff;
+  --on-accent: #ffffff;
+  --accent-text: #5532d6;
+  --accent-2: #b06000;
+  --accent-3: #188038;
+  --accent-soft-a: 16%;
+}
+:root {
+  --accent-soft: color-mix(in srgb, var(--accent) var(--accent-soft-a), transparent);
+}
+
+/* ---- the Invictus logo in the footer comes in a light and a dark version */
+:root {
+  --logo-on-dark: inline;
+  --logo-on-light: none;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --logo-on-dark: none;
+    --logo-on-light: inline;
+  }
+}
+:root[data-theme="light"] {
+  --logo-on-dark: none;
+  --logo-on-light: inline;
+}
+
+/* ---- field and overlays on the canvas.
+   The field is a picture of a physical field, so these do not change with the theme.
+   Overlay colours sit on the dark field and use the dark-theme values of the tokens above. */
+:root {
+  /* path colours (categorical series) */
+  --series-1: #ffd166;
+  --series-2: #ef7bff;
+  --series-3: #7bd3ff;
+  --series-4: #9be564;
+  --series-5: #ff9b6b;
+  --series-6: #c3a6ff;
+
+  /* overlays */
+  --ov-guide: #fdd663; /* followed path, aim, selection, turn handle */
+  --ov-trail: #81c995;
+  --ov-robot: #a78bfa;
+  --ov-robot-edge: #1e1240;
+  --ov-hit: #f28b82;
+  --ov-axis-x: #f28b82;
+  --ov-axis-y: #81c995;
+  --ov-label: #ffffff;
+  --ov-curve: rgba(255, 255, 255, 0.45);
+  --ov-curve-sel: rgba(255, 255, 255, 0.75);
+  --ov-handle-line: rgba(255, 255, 255, 0.5);
+  --ov-point: #ffffff;
+  --ov-point-edge: #17191c;
+  --ov-point-locked: #888888;
+  --ov-ghost-fill: rgba(255, 255, 255, 0.1);
+  --ov-ghost-edge: rgba(255, 255, 255, 0.9);
+
+  /* field art */
+  --art-bg: #1a1b1e;
+  --art-wall: #dcdddf;
+  --art-wall-edge: #8f9092;
+  --art-tile-a: #373739;
+  --art-tile-b: #343436;
+  --art-seam: #2b2b2d;
+  --art-tape: #bcc1dd;
+  --art-red: #c9283d;
+  --art-blue: #2a9ad8;
+  --art-yellow: #e8dc63;
+  --art-pin-yellow: #e9d95f;
+  --art-pin-red: #d02a40;
+  --art-pin-blue: #2f9fe3;
+  --art-cup-white: #ffffff;
+  --art-cup-gray: #5b5c61;
+  --art-ink: #0d0d0e;
+  --art-goal-black: #1b1b1d;
+  --art-goal-red: #b92337;
+  --art-goal-blue: #2589c4;
+  --art-goal-rim: #2a2a2d;
+  --art-goal-hub: #e3d56a;
+  --art-goal-hole: #16090b;
+  --art-mount: #0b0b0c;
+  --art-shade: rgba(0, 0, 0, 0.45);
+  --art-shade-soft: rgba(0, 0, 0, 0.35);
+}

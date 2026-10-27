@@ -11,8 +11,6 @@
   const NS = (globalThis.VSim = globalThis.VSim || {});
   const E = NS.Editor;
 
-  const COLORS = ['#ffd166', '#ef7bff', '#7bd3ff', '#9be564', '#ff9b6b', '#c3a6ff'];
-
   const PT = {};
   NS.PathTool = PT;
 
@@ -102,7 +100,7 @@
     return Array.from(idsMap().values()).concat(...Array.from(al.values()));
   };
 
-  const colorOf = (path) => COLORS[project.paths.indexOf(path) % COLORS.length];
+  const colorOf = (path) => NS.theme.series(project.paths.indexOf(path));
 
   function pathLength(path) {
     const pts = points(path);
@@ -618,14 +616,15 @@
     cv.height = Ht * dpr;
     const ctx = cv.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const cs = getComputedStyle(document.body);
-    ctx.fillStyle = cs.getPropertyValue('--field') || '#222';
+    const T = NS.theme.color;
+    const mono = T('mono');
+    ctx.fillStyle = T('surface-sunken');
     ctx.fillRect(0, 0, W, Ht);
     const p = project.getPath(selPath);
     const g = p && graphGeometry(p);
     if (!g) {
-      ctx.fillStyle = '#8e939b';
-      ctx.font = '12px Consolas, monospace';
+      ctx.fillStyle = T('ink-muted');
+      ctx.font = `12px ${mono}`;
       ctx.fillText('Select or draw a path to edit its speed profile.', 10, 22);
       return;
     }
@@ -633,7 +632,7 @@
     const py = (v) => Ht - 14 - (v / g.top) * (Ht - 24);
     // limits
     ctx.setLineDash([4, 4]);
-    ctx.strokeStyle = 'rgba(150,150,150,0.6)';
+    ctx.strokeStyle = T('border-control');
     ctx.lineWidth = 1;
     [g.lFrom, g.lTo].forEach((v) => {
       ctx.beginPath();
@@ -642,12 +641,12 @@
       ctx.stroke();
     });
     ctx.setLineDash([]);
-    ctx.fillStyle = '#8e939b';
-    ctx.font = '11px Consolas, monospace';
+    ctx.fillStyle = T('ink-muted');
+    ctx.font = `11px ${mono}`;
     ctx.fillText(String(g.lTo), 10, py(g.lTo) - 3);
     ctx.fillText(String(g.lFrom), 10, py(g.lFrom) - 3);
     // segment ticks
-    ctx.strokeStyle = 'rgba(150,150,150,0.35)';
+    ctx.strokeStyle = T('hairline');
     g.segStart.forEach((s, i) => {
       if (!i) return;
       ctx.beginPath();
@@ -658,7 +657,7 @@
     // profile
     ctx.beginPath();
     g.pts.forEach((q, i) => (i ? ctx.lineTo(px(q.s), py(q.v)) : ctx.moveTo(px(q.s), py(q.v))));
-    ctx.strokeStyle = '#37c4b0';
+    ctx.strokeStyle = T('accent');
     ctx.lineWidth = 2;
     ctx.stroke();
     // keyframes
@@ -668,14 +667,14 @@
         const v = g.lFrom + (g.lTo - g.lFrom) * kf.yPos;
         ctx.beginPath();
         ctx.arc(px(s), py(v), 5, 0, Math.PI * 2);
-        ctx.fillStyle = kf.uid === selKf ? '#f2c230' : '#ffffff';
+        ctx.fillStyle = kf.uid === selKf ? T('accent-2') : T('ink');
         ctx.fill();
-        ctx.strokeStyle = '#17191c';
+        ctx.strokeStyle = T('surface');
         ctx.lineWidth = 1.5;
         ctx.stroke();
       });
     });
-    ctx.fillStyle = '#8e939b';
+    ctx.fillStyle = T('ink-muted');
     ctx.fillText('0', 8, Ht - 3);
     ctx.fillText(g.total.toFixed(0) + ' in', W - 46, Ht - 3);
   }
