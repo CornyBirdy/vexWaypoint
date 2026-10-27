@@ -35,6 +35,7 @@
 
   // the field photos (from path.jerryio) cover the field plus its perimeter
   const PHOTO_HALF = 74.0; // inches from the field centre to the edge of the picture
+  const LOGO = { src: 'assets/invictus-52111a-light.svg', ratio: 1194 / 309 }; // team watermark
   const PHOTOS = { match: 'assets/field/override-match.png', skills: 'assets/field/override-skills.png' };
 
   class Renderer {
@@ -47,6 +48,9 @@
       this.style = 'photo-match'; // 'photo-match' | 'photo-skills' | 'drawn'
       this.images = {};
       this.onImageLoad = null;
+      this.logo = new Image();
+      this.logo.onload = () => this.onImageLoad && this.onImageLoad();
+      this.logo.src = LOGO.src;
       this.resize();
     }
 
@@ -105,6 +109,18 @@
       if (s.aim && isFinite(s.aim.x)) this.drawAim(ctx, s.aim);
       if (s.pose) this.drawRobot(ctx, s.pose, s.robot, { hit: s.hit });
       if (s.codeAxes) this.drawCodeAxes(ctx, s.codeAxes);
+      this.drawWatermark(ctx);
+    }
+
+    /** "made by" mark in the bottom-right corner, in the border below the field */
+    drawWatermark(ctx) {
+      const img = this.logo;
+      if (!img || !img.complete || !img.naturalWidth) return;
+      const h = 3.3 * this.scale;
+      const w = h * LOGO.ratio;
+      ctx.globalAlpha = 0.5;
+      ctx.drawImage(img, this.wx(78.5) - w, this.wy(-77.2) - h / 2, w, h);
+      ctx.globalAlpha = 1;
     }
 
     // ---------------------------------------------------------- field

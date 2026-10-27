@@ -1,5 +1,13 @@
 # VEX Auton Sim
 
+<p>
+<picture>
+  <source srcset="assets/invictus-52111a-light.svg" media="(prefers-color-scheme: dark)">
+  <img src="assets/invictus-52111a.svg" alt="Invictus 52111A" height="40">
+</picture>
+<br>Made by <b>Invictus 52111A</b>
+</p>
+
 A drivetrain-only autonomous simulator for the **VEX V5 Override** field.
 It runs your **LemLib** auton code (C++ or JavaScript), follows **path.jerryio** files, and lets you scrub the result on a timeline.
 

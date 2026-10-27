@@ -178,3 +178,7 @@ ul.paths:empty::after { content: "none loaded"; color: var(--muted); }
 #projList:empty::after { content: "no paths yet: press New path, or drop a jerry.io file"; }
 #pathList:empty::after { content: none; }
 #pathList:empty { display: none; }
+
+/* ---- credit */
+.credit { display: flex; justify-content: center; align-items: center; gap: 10px; padding: 6px 12px 18px; color: var(--muted); font-size: 12px; }
+.credit img { display: block; height: 22px; width: auto; opacity: .85; }
