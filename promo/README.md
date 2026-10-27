@@ -6,7 +6,8 @@ simulator and every render is identical.
 
 ```
 node promo/render.js all --out /tmp/frames   # 1800 PNG frames (3 shots in parallel, ~12 min)
-promo/build.sh /tmp/frames                   # score + loudness + H.264 -> promo/out/*.mp4
+node promo/render.js all --fmt v --out /tmp/frames-v   # 900 frames, 1080x1920 @ 30 fps (Instagram)
+promo/build.sh /tmp/frames /tmp/frames-v     # score + loudness + H.264 -> promo/out/*.mp4
 ```
 
 | File | What it is |

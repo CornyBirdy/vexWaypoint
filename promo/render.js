@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* Waypoint reveal: frame renderer.
  *
- *   node promo/render.js <shot|all> [--out DIR] [--fps 60] [--stills 1.2,3.4] [--jobs 3]
+ *   node promo/render.js <shot|all> [--out DIR] [--fmt h|v] [--fps 60] [--stills 1.2,3.4] [--jobs 3]
  *
  * Serves the repo, opens promo/stage.html in Chromium, and steps the real app one video frame at a time
  * (virtual clock, real mouse events). Writes DIR/<global frame number>.png. With --stills only those
@@ -25,6 +25,9 @@ const OUT = path.resolve(flag('out', path.join(__dirname, 'out', 'frames')));
 const stills = flag('stills', '') ? flag('stills', '').split(',').map(Number) : null;
 const jobs = parseInt(flag('jobs', '3'), 10);
 const probe = flag('probe', '');
+const fmt = flag('fmt', 'h');            // h = 16:9 (YouTube), v = 9:16 (Instagram)
+const fpsArg = flag('fps', fmt === 'v' ? '30' : '60');
+const SIZE = fmt === 'v' ? { width: 1080, height: 1920 } : { width: 1920, height: 1080 };
 
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.ttf': 'font/ttf', '.txt': 'text/plain' };
 function serve() {
@@ -46,12 +49,12 @@ async function renderShot(id) {
   const srv = await serve();
   const base = `http://127.0.0.1:${srv.address().port}`;
   const browser = await chromium.launch({ args: ['--force-color-profile=srgb', '--font-render-hinting=none', '--disable-lcd-text', '--hide-scrollbars'] });
-  const ctx = await browser.newContext({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1, colorScheme: 'dark', reducedMotion: 'no-preference' });
+  const ctx = await browser.newContext({ viewport: SIZE, deviceScaleFactor: 1, colorScheme: 'dark', reducedMotion: 'no-preference' });
   await ctx.addInitScript({ path: path.join(__dirname, 'inject.js') });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => console.error(`[${id}] page error:`, e.message));
   page.on('console', (m) => m.type() === 'error' && console.error(`[${id}] console:`, m.text()));
-  await page.goto(`${base}/promo/stage.html`);
+  await page.goto(`${base}/promo/stage.html?fmt=${fmt}&fps=${fpsArg}`);
   const { fps, t0, t1 } = await page.evaluate((s) => window.stage.ready(s), id);
   fs.mkdirSync(OUT, { recursive: true });
 
@@ -97,7 +100,7 @@ async function main() {
       const next = () => {
         const id = queue.shift();
         if (!id) return res();
-        const extra = ['--out', OUT];
+        const extra = ['--out', OUT, '--fmt', fmt, '--fps', fpsArg];
         const p = spawn(process.execPath, [__filename, id, ...extra], { stdio: 'inherit' });
         p.on('exit', (code) => {
           if (code) process.exitCode = code;

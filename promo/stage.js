@@ -18,7 +18,13 @@
   };
   const prog = (t, a, d, ease = E.out) => ease(clamp((t - a) / d));
 
-  const REGION = { x0: 760, y0: 60, x1: 1880, y1: 1020 }; // where app content is fitted
+  // vertical (9:16) variant for Instagram: ?fmt=v  (and ?fps=30)
+  const VERT = /[?&]fmt=v\b/.test(location.search);
+  const fpsQ = /[?&]fps=(\d+)/.exec(location.search);
+  if (fpsQ) window.PROMO.FPS = +fpsQ[1];
+  if (VERT) document.documentElement.classList.add('v');
+  const W = VERT ? 1080 : 1920;
+  const REGION = VERT ? { x0: 20, y0: 740, x1: 1060, y1: 1880 } : { x0: 760, y0: 60, x1: 1880, y1: 1020 }; // where app content is fitted
   const APP = { w: 1200, h: 900 };
   const VIEW = 160; // inches across the field canvas (render.js)
 
@@ -103,7 +109,7 @@
   }
 
   function cameraAt(lt) {
-    const keys = shot.camera;
+    const keys = VERT && shot.cameraV ? shot.cameraV : shot.camera;
     let i = 0;
     while (i + 1 < keys.length && keys[i + 1].t <= lt) i++;
     const k0 = keys[i];
@@ -233,10 +239,15 @@
 
   // ------------------------------------------------------------------ scenes
 
-  const trackD = 'M 250 800 C 520 640, 700 940, 960 800 S 1400 650, 1670 790';
+  const TITLE = VERT
+    ? { w: 1080, h: 1920, word: [540, 820], trackD: 'M 110 1070 C 280 930, 400 1210, 540 1070 S 800 930, 970 1060', clip: { x: -600, y: -200, w: 1200, h: 260 }, bot: 0.8 }
+    : { w: 1920, h: 1080, word: [960, 560], trackD: 'M 250 800 C 520 640, 700 940, 960 800 S 1400 650, 1670 790', clip: { x: -1000, y: -260, w: 2000, h: 300 }, bot: 1 };
+  const trackD = TITLE.trackD;
   let trackLen = 0;
   let nodesBuilt = false;
   function buildTitle() {
+    $('titleSvg').setAttribute('viewBox', `0 0 ${TITLE.w} ${TITLE.h}`);
+    $('wordG').setAttribute('transform', `translate(${TITLE.word[0]} ${TITLE.word[1]}) skewX(-11)`);
     ['trackBase', 'trackGlow', 'trackDone'].forEach((id) => $(id).setAttribute('d', trackD));
     const path = $('trackBase');
     trackLen = path.getTotalLength();
@@ -259,7 +270,9 @@
       a.currentTime = ms;
     });
     const logo = $('logo');
-    logo.style.transform = `scale(${1 + 0.05 * clamp(lt / shot.dur)})`;
+    const k = parseFloat(getComputedStyle(logo).width) / 680;
+    logo.style.transformOrigin = `${407.2 * k}px ${114.6 * k}px`;
+    logo.style.transform = `translate(${-(407.2 - 340) * k}px, ${-(114.6 - 110) * k}px) scale(${1 + 0.05 * clamp(lt / shot.dur)})`;
     logo.style.opacity = 1;
     const q = E.io(clamp((lt - 1.35) / 1.0));
     const gx = lerp(80, 720, q);
@@ -277,10 +290,10 @@
   function sceneTitle(lt) {
     if (!nodesBuilt) buildTitle();
     const w = prog(lt, 0.12, 0.8, E.expo);
-    $('wordClipRect').setAttribute('x', -1000);
-    $('wordClipRect').setAttribute('y', -260);
-    $('wordClipRect').setAttribute('width', 2000 * w);
-    $('wordClipRect').setAttribute('height', 300);
+    $('wordClipRect').setAttribute('x', TITLE.clip.x);
+    $('wordClipRect').setAttribute('y', TITLE.clip.y);
+    $('wordClipRect').setAttribute('width', TITLE.clip.w * w);
+    $('wordClipRect').setAttribute('height', TITLE.clip.h);
     const word = $('titleWord');
     word.style.transform = `translateX(${(1 - w) * -60}px)`;
     const p = E.io(clamp((lt - 0.45) / 1.3));
@@ -295,7 +308,7 @@
     const ang = (Math.atan2(pt2.x - pt.x, -(pt2.y - pt.y)) * 180) / Math.PI;
     const bot = $('botG');
     const bs = prog(lt, 0.4, 0.4, E.back);
-    bot.setAttribute('transform', `translate(${pt.x} ${pt.y}) rotate(${p > 0.002 ? ang : 90}) scale(${bs})`);
+    bot.setAttribute('transform', `translate(${pt.x} ${pt.y}) rotate(${p > 0.002 ? ang : 90}) scale(${bs * TITLE.bot})`);
     bot.style.opacity = bs > 0 ? 1 : 0;
     document.querySelectorAll('#nodes .node').forEach((n) => {
       const f = parseFloat(n.dataset.f);
@@ -357,6 +370,7 @@
 
   // ------------------------------------------------------------------ wipes
 
+  const EDGE = VERT ? 0.4 : 0.25;
   function wipes(t) {
     const a = $('wipeA');
     const b = $('wipeB');
@@ -370,21 +384,21 @@
       let Rb;
       if (t <= c) {
         const p = E.io5(clamp((t - (c - WIPE)) / WIPE));
-        L = -0.25;
-        R = lerp(-0.12, 1.25, p);
+        L = -EDGE;
+        R = lerp(-EDGE + 0.13, 1 + EDGE, p);
         Lb = L;
         Rb = R + 0.04;
       } else {
         const p = E.io5(clamp((t - c) / WIPE));
-        R = 1.25;
-        L = lerp(-0.25, 1.25, p);
+        R = 1 + EDGE;
+        L = lerp(-EDGE, 1 + EDGE, p);
         Rb = R;
         Lb = L - 0.04;
       }
-      a.style.left = `${L * 1920}px`;
-      a.style.width = `${Math.max(0, (R - L) * 1920)}px`;
-      b.style.left = `${Lb * 1920}px`;
-      b.style.width = `${Math.max(0, (Rb - Lb) * 1920)}px`;
+      a.style.left = `${L * W}px`;
+      a.style.width = `${Math.max(0, (R - L) * W)}px`;
+      b.style.left = `${Lb * W}px`;
+      b.style.width = `${Math.max(0, (Rb - Lb) * W)}px`;
       b.style.background = '#e7e0ff';
     }
     a.style.display = b.style.display = on ? 'block' : 'none';
@@ -434,7 +448,7 @@
       await idle();
       win.__advance(1000);
       buildCaption(shot.cap);
-      shot.camera.forEach((k) => delete k._r);
+      (VERT && shot.cameraV ? shot.cameraV : shot.camera).forEach((k) => delete k._r);
       (shot.mouse || []).forEach((m) => delete m._to);
     }
     return { fps: window.PROMO.FPS, t0: shot.t0, t1: shot.t1 };

@@ -139,6 +139,13 @@ void autonomous() {
         toEnd(A);
       },
       camera: [{ t: 0, rect: { x: 60, y: 80, w: 1130, h: 830 }, pad: 20 }, { t: 3.8, rect: { x: 60, y: 80, w: 1130, h: 830 }, pad: 6 }],
+      // portrait: zoom on the drivetrain panel, where the numbers change, then pull back for the result
+      cameraV: [
+        { t: 0, rect: { x: 60, y: 80, w: 1130, h: 830 }, pad: 10 },
+        { t: 0.7, rect: { x: 800, y: 60, w: 400, h: 520 }, pad: 20 },
+        { t: 3.0, rect: { x: 800, y: 60, w: 400, h: 520 }, pad: 20 },
+        { t: 3.7, rect: { x: 60, y: 80, w: 1130, h: 830 }, pad: 10 },
+      ],
       mouse: [
         move(0.5, { sel: 'input[data-key="robot.rpm"]' }, 0.8, { from: { app: [560, 820] } }),
         click(1.9, { sel: 'input[data-key="robot.rpm"]', fx: 0.8 }, 0.5, { click: 'fake' }),
