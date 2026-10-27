@@ -63,8 +63,10 @@ LemLib 0.5-style calls, with LemLib's blocking rules (`async` defaults to `true`
 
 `setPose` `getPose` `moveToPoint` `moveToPose` `turnToHeading` `turnToPoint` `swingToHeading` `swingToPoint` `follow` `waitUntil` `waitUntilDone` `cancelMotion` `cancelAllMotions`, plus `pros::delay`, `pros::millis`, designated-initialiser params (`{.forwards = false, .maxSpeed = 80}`), `lemlib::DriveSide::LEFT`, `lemlib::AngularDirection::CW_CLOCKWISE`, simple `int / float / bool` variables, `if`, `for`, `while`, and several `void name()` routines (pick one in the **Routine** menu).
 
-Anything on other objects (`intake.move(127)`, `clamp.set_value(true)`, ...) is ignored.
-It is a small translator, **not a C++ compiler**: helper functions with parameters, lambdas, classes and templates are not supported (you get a warning).
+You can paste your **whole `main.cpp`**: the sim finds `autonomous()` (or the first routine with "auto" in its name), runs it, and ignores `initialize()`, `opcontrol()` and the rest. Other `void` functions with a body become helpers you can call (with arguments and default values), and `enum`s, `#define NAME value` and simple global constants are understood. If the file has several routines, pick one in the **Routine** menu; the run log says which one ran and which functions were ignored.
+
+Anything on other objects (`intake.move(127)`, `clamp.set_value(true)`, `pros::lcd::print(...)`, ...) is ignored, and lambdas / `pros::Task` bodies are skipped.
+It is a small translator, **not a C++ compiler**: classes, templates and pointer tricks are not supported. If a helper function cannot be translated you get a warning and calls to it are ignored; if the routine itself cannot be parsed the run log points at the line that probably caused it.
 
 **Import drivetrain & gains from code** copies the numbers from your `lemlib::Drivetrain` and `lemlib::ControllerSettings` lines into the sim settings. The LemLib tuning card holds the PID values, exit conditions and slew.
 

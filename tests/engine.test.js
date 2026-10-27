@@ -286,6 +286,31 @@ const normDeg = (d) => ((((d + 180) % 360) + 360) % 360) - 180;
   near(t.end.y, 20, 2, 'relative follow end y');
   console.log('ok follow (relative mode)', t.end);
 
+  // --- a whole main.cpp: finds autonomous(), runs helper functions, ignores the rest of the program
+  {
+    const full = require('fs').readFileSync(path.join(__dirname, 'fixtures', 'main.cpp'), 'utf8');
+    const c = V.compileAuton(full, { language: 'cpp' });
+    assert.strictEqual(c.routine, 'autonomous');
+    assert.deepStrictEqual(c.routines, ['leftSide', 'autonomous']);
+    assert.deepStrictEqual(c.warnings, []);
+    assert(c.ignored.includes('opcontrol') && c.ignored.includes('initialize'));
+    const ex = V.parsePathFile('example.txt', require('fs').readFileSync(path.join(__dirname, '..', 'examples', 'example.txt'), 'utf8')).paths[0];
+    t = await run(full, { paths: [libOf(ex)], start: { x: -60, y: -60, h: 0 } });
+    const labels = t.res.motions.map((m) => m.label.split('(')[0]);
+    assert.deepStrictEqual(labels, ['moveToPoint', 'moveToPoint', 'moveToPoint', 'turnToHeading', 'follow'], labels.join());
+    assert(!t.res.events.some((e) => e.kind === 'error'), 'no errors');
+    // pick another routine by name
+    const left = V.compileAuton(full, { language: 'cpp', routine: 'leftSide' });
+    assert.strictEqual(left.routine, 'leftSide');
+    t = await run(full.replace('void autonomous', 'void notAuto'), { paths: [libOf(ex)] });
+    assert(t.c.routine === 'leftSide' || /auto/i.test(t.c.routine), 'falls back to a routine when there is no autonomous()');
+    console.log('ok whole main.cpp', labels.join(' '));
+  }
+
+  // --- parse errors point at the translated line
+  t = await run(`void autonomous(){ chassis.moveToPoint(0, 10, 1000); int = ; }`);
+  assert(t.res.events.some((e) => e.kind === 'error' && /Could not parse/.test(e.text)), 'syntax error reported');
+
   // --- errors surface, never hang
   t = await run(`void autonomous(){ while (true) { } }`);
   assert(t.res.events.some((e) => e.kind === 'error'), 'infinite loop reported');
@@ -306,3 +331,18 @@ const normDeg = (d) => ((((d + 180) % 360) + 360) % 360) - 180;
   console.error('FAILED', e);
   process.exit(1);
 });
+
+// every browser script must at least parse (a typo here only shows up as a blank page)
+(() => {
+  const fs = require('fs');
+  const dir = path.join(__dirname, '..', 'js');
+  for (const f of fs.readdirSync(dir)) {
+    try {
+      new Function(fs.readFileSync(path.join(dir, f), 'utf8'));
+    } catch (e) {
+      console.error('FAILED to parse js/' + f + ': ' + e.message);
+      process.exit(1);
+    }
+  }
+  console.log('ok all browser scripts parse');
+})();
