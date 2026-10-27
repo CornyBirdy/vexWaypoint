@@ -188,7 +188,12 @@
   const NUM_TYPES =
     '(?:(?:const|static|unsigned|signed|volatile)\\s+)*(?:int|float|double|bool|long|short|char|auto|size_t|u?int(?:8|16|32|64)_t|string)';
 
-  /** wrap `while (cond)` so runaway loops can be stopped: while (__guard(), (cond)) */
+  /**
+   * `while (cond) { body }` -> a loop the simulator can break out of when it is only waiting on
+   * something it does not simulate (a lift or claw task). `do { } while (cond);` just gets the
+   * runaway guard.
+   */
+  let loopCounter = 0;
   function guardWhileLoops(s) {
     let out = '';
     let i = 0;
@@ -198,7 +203,21 @@
       const open = m.index + m[0].length - 1;
       const close = matchBracket(s, open);
       if (close < 0) break;
-      out += s.slice(i, open + 1) + '__guard(), (' + s.slice(open + 1, close) + ')';
+      const cond = s.slice(open + 1, close);
+      const after = /^\s*\{/.exec(s.slice(close + 1));
+      if (after) {
+        const bodyOpen = close + after[0].length;
+        const bodyClose = matchBracket(s, bodyOpen);
+        if (bodyClose >= 0) {
+          const id = '__w' + loopCounter++;
+          const body = guardWhileLoops(s.slice(bodyOpen, bodyClose + 1));
+          out += s.slice(i, m.index) + `{ const ${id} = __loopStart(${JSON.stringify(cond.trim())}); while (__guard(), !__stuck(${id}) && (${cond})) ${body} }`;
+          i = bodyClose + 1;
+          re.lastIndex = i;
+          continue;
+        }
+      }
+      out += s.slice(i, open + 1) + '__guard(), (' + cond + ')';
       i = close;
       re.lastIndex = close;
     }

@@ -10,7 +10,7 @@
   const DEFAULTS = {
     start: { x: -60, y: -60, h: 0 },
     robot: { wheelDiameter: 3.25, rpm: 450, speedPct: 90, trackWidth: 12, length: 15, width: 15, responseMs: 80 },
-    cfg: { horizontalDrift: 2, pathMode: 'field' },
+    cfg: { horizontalDrift: 2, pathMode: 'field', mechanismWait: 500 },
     lateral: { ...V.DEFAULT_LATERAL },
     angular: { ...V.DEFAULT_ANGULAR },
     lang: 'cpp',
@@ -44,6 +44,7 @@
       ['robot.width', 'Robot width (in)', 0.5, 6, 24],
       ['robot.responseMs', 'Motor response (ms)', 5, 1, 400],
       ['cfg.horizontalDrift', 'Horizontal drift', 0.5, 0, 50],
+      ['cfg.mechanismWait', 'Lift / claw wait (ms)', 50, 0, 5000],
     ],
     formLat: controllerFields('lateral'),
     formAng: controllerFields('angular'),
@@ -322,6 +323,7 @@
           endIdx: p.endIdx,
         })).concat(V.PathTool.runPaths()),
         chassisNames: ['chassis', c.config.chassisName],
+        mechanismWaitMs: S.cfg.mechanismWait,
         maxMs: 120000,
       });
       result = res;

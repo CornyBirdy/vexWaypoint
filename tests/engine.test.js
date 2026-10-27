@@ -307,6 +307,23 @@ const normDeg = (d) => ((((d + 180) % 360) + 360) % 360) - 180;
     console.log('ok whole main.cpp', labels.join(' '));
   }
 
+  // --- a bare list of statements that waits on a lift task the sim does not run, and calls an
+  //     undefined helper (a real paste from a skills routine)
+  {
+    const skills = require('fs').readFileSync(path.join(__dirname, 'fixtures', 'skills.cpp'), 'utf8');
+    t = await run(skills);
+    const ev = t.res.events;
+    assert(!ev.some((e) => e.kind === 'error'), 'no errors: ' + ev.filter((e) => e.kind === 'error').map((e) => e.text));
+    assert(ev.some((e) => /Auton code finished/.test(e.text)), 'the routine finishes');
+    assert(t.end.t < 120000 && t.end.t > 10000, 'finishes in a sensible time, not at the time limit: ' + t.end.t);
+    assert(ev.some((e) => e.kind === 'warn' && /liftPIDEnabled/.test(e.text)), 'tells you the lift wait was skipped');
+    assert(ev.some((e) => /resetAtGoalA\(\), resetAtGoalB\(\)/.test(e.text)), 'lists the undefined helpers');
+    // 14 waits of the default 500 ms each are the only extra time; a longer wait setting lengthens the run
+    const slow = await V.runSimulation({ js: V.compileAuton(skills, { language: 'cpp' }).js, robot: ROBOT, start: { x: 0, y: 0, h: 0 }, cfg: cfg(), paths: [], chassisNames: ['chassis'], mechanismWaitMs: 1500, maxMs: 300000 });
+    assert(slow.durationMs > t.end.t + 5000, 'a longer mechanism wait lengthens the run');
+    console.log('ok bare skills paste with lift waits finishes in', t.end.t, 'ms');
+  }
+
   // --- parse errors point at the translated line
   t = await run(`void autonomous(){ chassis.moveToPoint(0, 10, 1000); int = ; }`);
   assert(t.res.events.some((e) => e.kind === 'error' && /Could not parse/.test(e.text)), 'syntax error reported');
