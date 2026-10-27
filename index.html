@@ -5,14 +5,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VEX Auton Sim</title>
 <meta name="author" content="Invictus 52111A">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23333'/%3E%3Crect x='4' y='3' width='8' height='10' fill='%232f8f83'/%3E%3C/svg%3E">
+<link rel="icon" type="image/svg+xml" href="assets/icon/icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/icon/icon-32.png">
+<link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48">
+<link rel="apple-touch-icon" href="assets/icon/icon-192.png">
+<meta name="color-scheme" content="dark light">
+<link rel="stylesheet" href="css/tokens.css">
 <link rel="stylesheet" href="css/style.css">
+<script src="js/theme.js"></script>
 </head>
 <body>
 <header class="bar">
   <h1>VEX Auton Sim</h1>
   <span class="grow"></span>
   <label class="check"><input type="checkbox" id="autoRun" checked> re-run on change</label>
+  <button id="btnTheme" class="btn" type="button" title="Colour theme: Auto follows your system" aria-label="Colour theme">Theme: Auto</button>
   <button id="btnExample" class="btn" type="button">Load example</button>
   <button id="btnRun" class="btn primary" type="button" title="Ctrl+Enter">Run</button>
 </header>
@@ -156,10 +163,8 @@
 
 <footer class="credit">
   <span>Made by</span>
-  <picture>
-    <source srcset="assets/invictus-52111a-light.svg" media="(prefers-color-scheme: dark)">
-    <img src="assets/invictus-52111a.svg" alt="Invictus 52111A" height="22">
-  </picture>
+  <img class="on-dark" src="assets/invictus-52111a-light.svg" alt="Invictus 52111A" height="22">
+  <img class="on-light" src="assets/invictus-52111a.svg" alt="" height="22">
 </footer>
 
 <script src="js/lemlib.js"></script>

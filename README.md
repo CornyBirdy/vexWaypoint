@@ -94,6 +94,8 @@ It is a small translator, **not a C++ compiler**: classes, templates and pointer
 
 ```
 index.html, css/style.css       the page
+css/tokens.css                  colours, radii, spacing, fonts (dark / light, accent block)
+js/theme.js                     Auto / Light / Dark switch
 js/lemlib.js                    LemLib controllers + chassis (motions)
 js/sim.js                       physics, virtual clock, runs your code
 js/translate.js                 C++ -> JS translator
@@ -110,4 +112,4 @@ tests/editor.test.js            node tests/editor.test.js
 tools/make-examples.js          regenerates examples/ and js/examples.js
 ```
 
-Settings, code and loaded path files are remembered in your browser (local storage).
+The **Theme** button cycles Auto (follows your system), Light and Dark. Settings, code and loaded path files are remembered in your browser (local storage).

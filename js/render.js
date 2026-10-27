@@ -7,31 +7,33 @@
   const VIEW = 160; // inches shown: the field plus a border
   const WALL = 2.6; // perimeter band thickness
 
-  const C = {
-    bg: '#1a1b1e',
-    wall: '#dcdddf',
-    wallEdge: '#8f9092',
-    tileA: '#373739',
-    tileB: '#343436',
-    seam: '#2b2b2d',
-    tape: '#bcc1dd',
-    red: '#c9283d',
-    blue: '#2a9ad8',
-    yellow: '#e8dc63',
-    pinYellow: '#e9d95f',
-    pinRed: '#d02a40',
-    pinBlue: '#2f9fe3',
-    cupWhite: '#ffffff',
-    cupGray: '#5b5c61',
-    ink: '#0d0d0e',
-    goalBlack: '#1b1b1d',
-    robot: '#2f8f83',
-    hit: '#d9822b',
-    trail: '#37c4b0',
-    guide: '#f2c230',
+  // colours come from the CSS tokens (css/tokens.css); reloaded whenever the theme changes
+  const C = {};
+  const TOKENS = {
+    bg: 'art-bg', wall: 'art-wall', wallEdge: 'art-wall-edge', tileA: 'art-tile-a', tileB: 'art-tile-b',
+    seam: 'art-seam', tape: 'art-tape', red: 'art-red', blue: 'art-blue', yellow: 'art-yellow',
+    pinYellow: 'art-pin-yellow', pinRed: 'art-pin-red', pinBlue: 'art-pin-blue', cupWhite: 'art-cup-white',
+    cupGray: 'art-cup-gray', ink: 'art-ink', goalBlack: 'art-goal-black', goalRed: 'art-goal-red',
+    goalBlue: 'art-goal-blue', goalRim: 'art-goal-rim', goalHub: 'art-goal-hub', goalHole: 'art-goal-hole',
+    mount: 'art-mount', shade: 'art-shade', shadeSoft: 'art-shade-soft',
+    robot: 'ov-robot', robotEdge: 'ov-robot-edge', hit: 'ov-hit', trail: 'ov-trail', guide: 'ov-guide',
+    axisX: 'ov-axis-x', axisY: 'ov-axis-y', label: 'ov-label', curve: 'ov-curve', curveSel: 'ov-curve-sel',
+    handleLine: 'ov-handle-line', point: 'ov-point', pointEdge: 'ov-point-edge', pointLocked: 'ov-point-locked',
+    ghostFill: 'ov-ghost-fill', ghostEdge: 'ov-ghost-edge',
   };
+  const hex = {};
+  let paletteVersion = -1;
+  function loadPalette() {
+    const T = NS.theme;
+    if (paletteVersion === T.version) return;
+    paletteVersion = T.version;
+    Object.keys(TOKENS).forEach((k) => (C[k] = T.color(TOKENS[k])));
+    C.mono = T.color('mono');
+    hex.red = C.pinRed;
+    hex.blue = C.pinBlue;
+    hex.yellow = C.yellow;
+  }
 
-  const hex = { red: C.pinRed, blue: C.pinBlue, yellow: C.yellow };
 
   // the field photos (from path.jerryio) cover the field plus its perimeter
   const PHOTO_HALF = 74.0; // inches from the field centre to the edge of the picture
@@ -88,6 +90,7 @@
 
     draw(s) {
       const ctx = this.ctx;
+      loadPalette();
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       ctx.fillStyle = C.bg;
       ctx.fillRect(0, 0, this.w, this.h);
@@ -283,7 +286,7 @@
         ctx.closePath();
         ctx.fillStyle = fill;
         ctx.fill();
-        ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+        ctx.strokeStyle = C.shade;
         ctx.lineWidth = Math.max(1, 0.15 * S);
         ctx.stroke();
       };
@@ -316,11 +319,11 @@
         const cy = this.wy(g.y);
         const size = F.GOAL_SIZE * S;
         const neutral = g.team === 'neutral';
-        const body = g.team === 'red' ? '#b92337' : g.team === 'blue' ? '#2589c4' : C.goalBlack;
-        const rim = g.team === 'red' ? C.red : g.team === 'blue' ? C.blue : '#2a2a2d';
+        const body = g.team === 'red' ? C.goalRed : g.team === 'blue' ? C.goalBlue : C.goalBlack;
+        const rim = g.team === 'red' ? C.red : g.team === 'blue' ? C.blue : C.goalRim;
         // soft shadow
         this.octagon(ctx, cx + 0.4 * S, cy + 0.6 * S, size, 0.2);
-        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        ctx.fillStyle = C.shadeSoft;
         ctx.fill();
         this.octagon(ctx, cx, cy, size, 0.2);
         ctx.fillStyle = body;
@@ -332,7 +335,7 @@
         if (neutral) {
           ctx.beginPath();
           ctx.arc(cx, cy, size * 0.27, 0, Math.PI * 2);
-          ctx.fillStyle = '#e3d56a';
+          ctx.fillStyle = C.goalHub;
           ctx.fill();
           this.drawPin(ctx, { x: g.x, y: g.y, top: 'yellow', bottom: 'yellow' });
         } else {
@@ -342,12 +345,12 @@
           ctx.fill();
           ctx.beginPath();
           ctx.arc(cx, cy, size * 0.16, 0, Math.PI * 2);
-          ctx.fillStyle = '#16090b';
+          ctx.fillStyle = C.goalHole;
           ctx.fill();
         }
         // AprilTag id
-        ctx.fillStyle = '#fff';
-        ctx.font = `${Math.max(9, 2.6 * S)}px Consolas, "Liberation Mono", monospace`;
+        ctx.fillStyle = C.label;
+        ctx.font = `${Math.max(9, 2.6 * S)}px ${C.mono}`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(String(g.tag), cx + size * 0.36, cy - size * 0.33);
@@ -377,7 +380,7 @@
         if (t.wall === 'bottom') ctx.fillRect(cx - w / 2, cy + h / 2 - edge, w, edge);
         if (t.wall === 'left') ctx.fillRect(cx - w / 2, cy - h / 2, edge, h);
         if (t.wall === 'right') ctx.fillRect(cx + w / 2 - edge, cy - h / 2, edge, h);
-        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.strokeStyle = C.shade;
         ctx.lineWidth = 1;
         ctx.strokeRect(cx - w / 2, cy - h / 2, w, h);
       });
@@ -392,13 +395,13 @@
         ctx.beginPath();
         pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
         ctx.closePath();
-        ctx.fillStyle = '#1b1b1d';
+        ctx.fillStyle = C.goalBlack;
         ctx.fill();
         ctx.strokeStyle = l.team === 'red' ? C.red : C.blue;
         ctx.lineWidth = Math.max(1, 0.3 * S);
         ctx.stroke();
         // mounting bar on the wall
-        ctx.fillStyle = '#0b0b0c';
+        ctx.fillStyle = C.mount;
         ctx.fillRect(this.wx(l.x) - (l.x < 0 ? 0.1 : 0.6) * S, this.wy(l.y + 2.25), 0.7 * S, 4.5 * S);
       });
     }
@@ -438,7 +441,7 @@
         if (!p.visible) return;
         ctx.globalAlpha = p.selected ? 1 : 0.55;
         // curve
-        ctx.strokeStyle = p.selected ? 'rgba(255,255,255,0.75)' : 'rgba(255,255,255,0.45)';
+        ctx.strokeStyle = p.selected ? C.curveSel : C.curve;
         ctx.lineWidth = 1.2;
         ctx.beginPath();
         p.points.forEach((q, i) => (i ? ctx.lineTo(this.wx(q.x), this.wy(q.y)) : ctx.moveTo(this.wx(q.x), this.wy(q.y))));
@@ -459,7 +462,7 @@
         p.segments.forEach((seg) => {
           const c = seg.controls;
           if (c.length === 4) {
-            ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+            ctx.strokeStyle = C.handleLine;
             ctx.lineWidth = 1;
             ctx.setLineDash([3, 3]);
             ctx.beginPath();
@@ -479,16 +482,16 @@
           ctx.beginPath();
           if (c.__type === 'end-point') {
             ctx.arc(x, y, Math.max(5, 1.5 * S), 0, Math.PI * 2);
-            ctx.fillStyle = sel ? C.guide : '#ffffff';
+            ctx.fillStyle = sel ? C.guide : C.point;
             ctx.fill();
-            ctx.strokeStyle = p.locked ? '#888' : '#17191c';
+            ctx.strokeStyle = p.locked ? C.pointLocked : C.pointEdge;
             ctx.lineWidth = 2;
             ctx.stroke();
           } else {
             ctx.arc(x, y, Math.max(3.5, 1.0 * S), 0, Math.PI * 2);
-            ctx.fillStyle = sel ? C.guide : '#2f8f83';
+            ctx.fillStyle = sel ? C.guide : C.robot;
             ctx.fill();
-            ctx.strokeStyle = '#ffffff';
+            ctx.strokeStyle = C.point;
             ctx.lineWidth = 1.5;
             ctx.stroke();
           }
@@ -517,11 +520,11 @@
       ctx.save();
       ctx.translate(this.wx(pose.x), this.wy(pose.y));
       ctx.rotate((pose.h * Math.PI) / 180);
-      ctx.fillStyle = o.ghost ? 'rgba(255,255,255,0.10)' : o.hit ? C.hit : C.robot;
+      ctx.fillStyle = o.ghost ? C.ghostFill : o.hit ? C.hit : C.robot;
       ctx.globalAlpha = o.ghost ? 1 : 0.8;
       ctx.fillRect(-W / 2, -L / 2, W, L);
       ctx.globalAlpha = 1;
-      ctx.strokeStyle = o.ghost ? 'rgba(255,255,255,0.9)' : '#06201b';
+      ctx.strokeStyle = o.ghost ? C.ghostEdge : C.robotEdge;
       ctx.lineWidth = 1.5;
       ctx.setLineDash(o.ghost ? [5, 3] : []);
       ctx.strokeRect(-W / 2, -L / 2, W, L);
@@ -551,18 +554,18 @@
       ctx.translate(this.wx(a.x), this.wy(a.y));
       ctx.rotate((a.h * Math.PI) / 180);
       ctx.lineWidth = 2;
-      ctx.strokeStyle = '#e8584a';
+      ctx.strokeStyle = C.axisX;
       ctx.beginPath();
       ctx.moveTo(0, 0);
       ctx.lineTo(len, 0);
       ctx.stroke();
-      ctx.strokeStyle = '#4cc36f';
+      ctx.strokeStyle = C.axisY;
       ctx.beginPath();
       ctx.moveTo(0, 0);
       ctx.lineTo(0, -len);
       ctx.stroke();
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 11px Consolas, "Liberation Mono", monospace';
+      ctx.fillStyle = C.label;
+      ctx.font = `bold 11px ${C.mono}`;
       ctx.fillText('x', len + 3, 4);
       ctx.fillText('y', 4, -len - 3);
       ctx.restore();

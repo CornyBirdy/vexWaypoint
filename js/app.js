@@ -150,7 +150,6 @@
 
   // ------------------------------------------------------------------ path files
 
-  const PATH_COLORS = ['#ffd166', '#ef7bff', '#7bd3ff', '#9be564', '#ff9b6b', '#c3a6ff'];
   let pathFiles = []; // [{name, text}] raw files, kept so they survive a reload
   let paths = []; // parsed {id, aliases, name, source, unit, approximate, points, visible, color, unitOverride}
 
@@ -164,7 +163,7 @@
         const prev = old.get(p.id);
         p.visible = prev ? prev.visible : true;
         p.unitOverride = prev ? prev.unitOverride : null;
-        p.color = PATH_COLORS[paths.length % PATH_COLORS.length];
+        p.color = V.theme.series(paths.length);
         paths.push(p);
       });
     });
@@ -663,6 +662,10 @@
     if (saved && saved.project) V.PathTool.load(saved.project);
     else if (!saved) loadExamplePath();
     renderer.onImageLoad = requestDraw;
+    window.addEventListener('vsim-theme', () => {
+      requestDraw();
+      V.PathTool.drawGraph();
+    });
     renderer.setFieldStyle(S.fieldStyle);
     rebuildPaths();
     pushSettingsToUi();
