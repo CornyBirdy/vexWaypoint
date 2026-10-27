@@ -142,8 +142,8 @@ void autonomous() {
       // portrait: zoom on the drivetrain panel, where the numbers change, then pull back for the result
       cameraV: [
         { t: 0, rect: { x: 60, y: 80, w: 1130, h: 830 }, pad: 10 },
-        { t: 0.7, rect: { x: 800, y: 60, w: 400, h: 520 }, pad: 20 },
-        { t: 3.0, rect: { x: 800, y: 60, w: 400, h: 520 }, pad: 20 },
+        { t: 0.7, rect: { x: 800, y: 120, w: 400, h: 470 }, pad: 20 },
+        { t: 3.0, rect: { x: 800, y: 120, w: 400, h: 470 }, pad: 20 },
         { t: 3.7, rect: { x: 60, y: 80, w: 1130, h: 830 }, pad: 10 },
       ],
       mouse: [

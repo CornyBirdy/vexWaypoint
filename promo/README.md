@@ -1,6 +1,6 @@
 # Waypoint reveal video
 
-30 s, 1920x1080, 60 fps. Everything in it is the real app: `render.js` opens `index.html` in Chromium,
+30 s. 16:9 master 1920x1080 @ 60 fps (YouTube) and 9:16 1080x1920 @ 30 fps (Instagram). Everything in it is the real app: `render.js` opens `index.html` in Chromium,
 drives it with real mouse events and steps its clock one frame at a time, so the footage is the actual
 simulator and every render is identical.
 
@@ -17,7 +17,7 @@ promo/build.sh /tmp/frames /tmp/frames-v     # score + loudness + H.264 -> promo
 | `inject.js` | swaps the embedded app's clock for a virtual one |
 | `render.js` | frame renderer (`--stills 1.2,3.4` renders only those times for quick checks) |
 | `audio.py`, `events.js` | synthesized score (numpy only), cut-synced to the shot list |
-| `build.sh` | frames + score -> YouTube master and an Instagram 30 fps cut |
+| `build.sh` | frames + score -> YouTube 16:9 master and the 9:16 Instagram cut |
 | `fonts/` | Archivo Black (the logo face) and Cascadia Mono (the app's code face), both OFL |
 
 Needs: Node + `playwright` (Chromium), ffmpeg, Python 3 + numpy. Install the two fonts first
