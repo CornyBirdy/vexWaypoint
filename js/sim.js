@@ -322,7 +322,9 @@
     try {
       fn = new AsyncFunction('__scope', 'with (__scope) {\n' + o.js + '\n}');
     } catch (e) {
-      return { frames: null, events: [{ t: 0, kind: 'error', text: 'Could not parse the code: ' + e.message }], motions: [], durationMs: 0, error: e };
+      const hint = NS.diagnoseJs ? NS.diagnoseJs(o.js) : [];
+      const text = 'Could not parse the code: ' + e.message + (hint.length ? '\n  possibly near (translated): ' + hint.join('\n  ') : '');
+      return { frames: null, events: [{ t: 0, kind: 'error', text }], motions: [], durationMs: 0, error: e };
     }
 
     // recorded trajectory (one entry per tick, parallel arrays)

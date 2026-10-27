@@ -303,6 +303,7 @@
       const c = currentCompiled();
       const logLines = [];
       c.warnings.forEach((w) => logLines.push(['warn', w]));
+      if (S.lang === 'cpp' && c.routine) logLines.push(['info', `Running ${c.routine}()` + (c.ignored.length ? `  (ignored: ${c.ignored.join(', ')})` : '')]);
       const editorIds = V.PathTool.ids();
       const missing = c.config.assets.filter((a) => !paths.some((p) => p.id === a || p.aliases.includes(a)) && !editorIds.includes(a));
       missing.forEach((a) => logLines.push(['warn', `ASSET(${a}): no matching path file loaded`]));
