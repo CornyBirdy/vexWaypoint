@@ -33,6 +33,7 @@ async function run(code, { start = { x: 0, y: 0, h: 0 }, paths = [], language = 
 }
 const near = (a, b, tol, msg) => assert(Math.abs(a - b) <= tol, `${msg}: got ${a}, want ${b} +-${tol}`);
 const normDeg = (d) => ((((d + 180) % 360) + 360) % 360) - 180;
+const angDiff = (a, b) => Math.abs(normDeg(a - b));
 
 (async () => {
   let t;
@@ -131,7 +132,7 @@ const normDeg = (d) => ((((d + 180) % 360) + 360) % 360) - 180;
   assert.deepStrictEqual(comp.config.assets, ['example_txt']);
   t = await run(cpp);
   near(t.end.y, 25, 2, 'translated loop end y');
-  near(normDeg(t.end.h), 180, 4, 'translated if+turn');
+  assert(angDiff(t.end.h, 180) < 4, 'translated if+turn: ' + t.end.h);
   console.log('ok C++ translation + config extraction', t.end);
 
   // --- path parsing + follow (plain "x, y, speed" lines are read as inches, 0..127)
@@ -273,7 +274,8 @@ const normDeg = (d) => ((((d + 180) % 360) + 360) % 360) - 180;
   assert(pb.paths[0].aliases.includes('Leg_A') || pb.paths[0].id === 'Leg_A');
   // m/s speeds become motor commands relative to what the robot can do (68.9 in/s max here)
   t = await run(`void autonomous(){ chassis.follow(Leg_A, 12, 6000, true, false); }`, { paths: [libOf(pb.paths[0])], start: { x: 0, y: 0, h: 90 } });
-  near(t.end.x, 58, 4, 'v1.0 binary follow x');
+  // this path has only 4 points 20 in apart: like LemLib, the motion ends once the closest point is the speed-0 end point
+  near(t.end.x, 50, 4, 'v1.0 binary follow x');
   console.log('ok LemLib v1.0 binary', t.end);
 
   // --- relative path mode shifts the path (as drawn) so it starts on the robot
@@ -327,6 +329,54 @@ const normDeg = (d) => ((((d + 180) % 360) + 360) % 360) - 180;
   // --- parse errors point at the translated line
   t = await run(`void autonomous(){ chassis.moveToPoint(0, 10, 1000); int = ; }`);
   assert(t.res.events.some((e) => e.kind === 'error' && /Could not parse/.test(e.text)), 'syntax error reported');
+
+  // --- motion chaining, as in LemLib v0.5.6 (minSpeed + earlyExitRange)
+  {
+    const exitAt = (r, k = 0) => {
+      const f = r.frames;
+      const i = f.t.indexOf(r.motions[k].t1);
+      return { x: f.x[i], y: f.y[i], h: f.h[i], speed: (f.vl[i] + f.vr[i]) / 2, vl: f.vl[i], vr: f.vr[i] };
+    };
+    // moveToPoint exits on the line earlyExitRange before the target, still at speed
+    t = await run('chassis.moveToPoint(0, 48, 5000, {.minSpeed = 60, .earlyExitRange = 8}); chassis.waitUntilDone();');
+    let e = exitAt(t.res);
+    assert.strictEqual(t.res.motions[0].reason, 'early exit');
+    near(e.y, 40, 2.5, 'chained moveToPoint exits ~8 in early');
+    assert(e.speed > 40, 'and keeps its speed: ' + e.speed);
+    // without earlyExitRange it exits as it crosses the target's line
+    t = await run('chassis.moveToPoint(0, 48, 5000, {.minSpeed = 60}); chassis.waitUntilDone();');
+    near(exitAt(t.res).y, 48, 2, 'exits at the target line');
+    // without minSpeed the exit parameters do nothing: it settles at the target and stops
+    t = await run('chassis.moveToPoint(0, 48, 5000, {.earlyExitRange = 20}); chassis.waitUntilDone();');
+    assert.strictEqual(t.res.motions[0].reason, 'settled');
+    near(t.end.y, 48, 1.5, 'plain move still settles');
+    // turn: exits within earlyExitRange degrees while still spinning
+    t = await run('chassis.turnToHeading(180, 3000, {.minSpeed = 127, .earlyExitRange = 20}); chassis.waitUntilDone();');
+    e = exitAt(t.res);
+    assert.strictEqual(t.res.motions[0].reason, 'early exit');
+    assert(e.h > 158 && e.h < 180, 'turn exit heading ' + e.h);
+    assert(Math.abs(e.vl) > 20 && Math.abs(e.vr) > 20, 'still turning');
+    // a chain like a real routine: backwards point -> turn -> pose
+    t = await run(`chassis.moveToPoint(0, 30, 3000); chassis.waitUntilDone();
+      chassis.moveToPoint(0, 12, 4000, {.forwards = false, .minSpeed = 127, .earlyExitRange = 5}); chassis.waitUntilDone();
+      chassis.turnToHeading(270, 2000, {.minSpeed = 127, .earlyExitRange = 20}); chassis.waitUntilDone();
+      chassis.moveToPose(-12, 12, 270, 4000); chassis.waitUntilDone();`);
+    assert.deepStrictEqual(t.res.motions.map((m) => m.reason), ['settled', 'early exit', 'early exit', 'settled']);
+    near(t.end.x, -12, 1.5, 'chain end x');
+    near(t.end.y, 12, 1.5, 'chain end y');
+    assert(angDiff(t.end.h, 270) < 4, 'chain end heading ' + t.end.h);
+    // moveToPose quirk in v0.5.6: a small earlyExitRange exits when the robot gets "close" (7.5 in);
+    // a larger one never takes the early exit and the motion settles
+    t = await run('chassis.moveToPose(0, 48, 0, 4000, {.minSpeed = 72, .earlyExitRange = 3}); chassis.waitUntilDone();');
+    assert.strictEqual(t.res.motions[0].reason, 'early exit');
+    near(exitAt(t.res).y, 40.5, 2, 'moveToPose early exit when close');
+    t = await run('chassis.moveToPose(0, 48, 0, 4000, {.minSpeed = 72, .earlyExitRange = 8}); chassis.waitUntilDone();');
+    assert.strictEqual(t.res.motions[0].reason, 'settled');
+    // waitUntil on a turn counts degrees from the start heading
+    t = await run('chassis.turnToHeading(180, 4000); chassis.waitUntil(90); chassis.cancelMotion();');
+    assert(t.end.h > 85 && t.end.h < 150, 'cancelled mid-turn at ' + t.end.h);
+    console.log('ok motion chaining (LemLib v0.5.6 behaviour)');
+  }
 
   // --- errors surface, never hang
   t = await run(`void autonomous(){ while (true) { } }`);

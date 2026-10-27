@@ -1,13 +1,14 @@
 /*
- * LemLib-style motion controllers.
+ * LemLib motion controllers.
  *
- * Re-implementation of the LemLib (v0.5.x) chassis motions: PID + exit
- * conditions, moveToPoint, moveToPose (boomerang), turnTo*, swingTo*, and
- * pure-pursuit follow(). It is a faithful *port of the algorithms*, not the
- * original C++, so tiny numerical differences from a real robot are expected.
+ * A JavaScript port of the chassis motions in LemLib v0.5.6
+ * (https://github.com/LemLib/LemLib, MIT licence, (c) 2024 Liam Teale and LemLib
+ * contributors - see NOTICE.md): PID + exit conditions, moveToPoint, moveToPose
+ * (boomerang), turnTo*, swingTo*, follow() (pure pursuit), and the motion queue /
+ * chaining rules (minSpeed + earlyExitRange).
  *
  * Conventions (same as LemLib):
- *   - units are inches / degrees in the public API, radians internally
+ *   - units are inches / degrees in the public API
  *   - heading is a compass bearing: 0 = +Y, positive = clockwise
  *   - motor commands are -127..127
  *   - controllers run every 10 ms of simulated time
@@ -75,34 +76,51 @@
     }
   }
 
-  class Settle {
+  // ---- angle helpers, the same maths LemLib v0.5.6 uses (degrees for turns)
+
+  const sanitizeDeg = (a) => ((a % 360) + 360) % 360;
+
+  /** IEEE remainder: x - n*y with n the integer nearest x/y, ties to even (C's std::remainder) */
+  function remainder(x, y) {
+    const q = x / y;
+    let n = Math.floor(q + 0.5);
+    if (q + 0.5 === n && n % 2 !== 0) n -= 1;
+    return x - n * y;
+  }
+
+  /** LemLib angleError(target, position, radians = false, direction) */
+  function angleErrorDeg(target, position, direction) {
+    const raw = sanitizeDeg(target) - sanitizeDeg(position);
+    if (direction === 'CW_CLOCKWISE') return raw < 0 ? raw + 360 : raw;
+    if (direction === 'CCW_COUNTERCLOCKWISE') return raw > 0 ? raw - 360 : raw;
+    return remainder(raw, 360);
+  }
+
+  /** a LemLib ExitCondition pair: either one can end a motion */
+  class Exits {
     constructor(s, clock) {
       this.small = new ExitCondition(s.smallError, s.smallErrorTimeout, clock);
       this.large = new ExitCondition(s.largeError, s.largeErrorTimeout, clock);
     }
     update(err) {
-      const a = this.small.update(err);
-      const b = this.large.update(err);
-      return a || b;
+      this.small.update(err);
+      this.large.update(err);
     }
-  }
-
-  /**
-   * Turn error honouring a forced direction. A forced direction is followed
-   * until the remaining error is under 90 deg, then the shortest error is used
-   * so a small overshoot does not send the robot spinning the long way round.
-   */
-  function dirError(raw, direction, state) {
-    if (direction !== 'CW_CLOCKWISE' && direction !== 'CCW_COUNTERCLOCKWISE') return raw;
-    const forced =
-      direction === 'CW_CLOCKWISE' ? (raw >= 0 ? raw : raw + 2 * PI) : raw <= 0 ? raw : raw - 2 * PI;
-    if (!state.latched && Math.abs(forced) < PI / 2) state.latched = true;
-    return state.latched ? raw : forced;
+    get either() {
+      return this.small.done || this.large.done;
+    }
+    get both() {
+      return this.small.done && this.large.done;
+    }
   }
 
   const fmt = (n) => (Math.round(n * 100) / 100).toString();
 
   // ---------------------------------------------------------------- motions
+  //
+  // Ported from LemLib v0.5.6 (src/lemlib/chassis/motions/*.cpp). One step() is one pass of the
+  // original `while` loop (the original sleeps 10 ms after each pass). A step that returns a
+  // string ends the motion; the check order matches the original loop condition + body.
 
   class Motion {
     constructor(ch, name, argText, timeout) {
@@ -117,6 +135,10 @@
       this.t0 = ch.clock.now;
       this.t1 = null;
       this.donePromise = new Promise((r) => (this._res = r));
+    }
+    /** called when the motion actually starts running (after any earlier motion finished) */
+    begin() {
+      this.t0 = this.ch.clock.now;
     }
     get label() {
       return `${this.name}(${this.argText})`;
@@ -141,62 +163,94 @@
       super(ch, 'moveToPoint', [fmt(x), fmt(y), timeout].join(', '), timeout);
       this.target = { x, y };
       this.forwards = p.forwards !== false;
-      this.maxSpeed = clamp(p.maxSpeed == null ? 127 : p.maxSpeed, 0, 127);
-      this.minSpeed = Math.abs(p.minSpeed || 0);
-      this.earlyExit = p.earlyExitRange || 0;
+      this.maxSpeed = p.maxSpeed == null ? 127 : p.maxSpeed;
+      this.minSpeed = p.minSpeed || 0;
+      this.earlyExit = Math.abs(p.earlyExitRange || 0);
+      this.remaining = 0;
+    }
+    begin() {
+      super.begin();
+      const ch = this.ch;
       const lat = ch.cfg.lateral;
       const ang = ch.cfg.angular;
       this.lat = new PID(lat.kP, lat.kI, lat.kD, lat.antiWindup);
       this.ang = new PID(ang.kP, ang.kI, ang.kD, ang.antiWindup);
-      this.settle = new Settle(lat, ch.clock);
+      this.exits = new Exits(lat, ch.clock);
+      const s = ch.poseRad();
+      this.last = { x: s.x, y: s.y };
+      // direction of travel, start -> target (compass); the "line" used for motion chaining
+      this.travel = Math.atan2(this.target.x - s.x, this.target.y - s.y);
       this.close = false;
       this.prevLat = 0;
-      this.last = null;
-      this.remaining = 0;
+      this.prevAng = 0;
+      this.prevSide = null;
     }
     step() {
       const ch = this.ch;
-      const pose = ch.poseRad();
-      if (!this.forwards) pose.t += PI;
-      if (this.last) this.dist += Math.hypot(pose.x - this.last.x, pose.y - this.last.y);
-      this.last = { x: pose.x, y: pose.y };
+      // loop condition
+      if (this.timedOut()) return 'timeout';
+      if (this.close && this.exits.either) return 'settled';
 
+      const pose = ch.poseRad();
+      this.dist += Math.hypot(pose.x - this.last.x, pose.y - this.last.y);
+      this.last = { x: pose.x, y: pose.y };
       const dx = this.target.x - pose.x;
       const dy = this.target.y - pose.y;
-      const dist = Math.hypot(dx, dy);
-      this.remaining = dist;
+      const distTarget = Math.hypot(dx, dy);
+      this.remaining = distTarget;
       ch.aim = this.target;
 
-      if (!this.close && dist < 7.5) {
+      // close enough to start settling
+      if (distTarget < 7.5 && !this.close) {
         this.close = true;
         this.maxSpeed = Math.max(Math.abs(this.prevLat), 60);
       }
-      if (this.minSpeed !== 0 && dist < this.earlyExit) return 'early exit';
 
-      const angErr = normPi(Math.atan2(dx, dy) - pose.t);
-      const latErr = this.close ? dist * Math.cos(angErr) : dist;
-      if (this.settle.update(latErr)) return 'settled';
-      if (this.timedOut()) return 'timeout';
+      // motion chaining: has the robot crossed the line earlyExitRange before the target?
+      const along = (pose.x - this.target.x) * Math.sin(this.travel) + (pose.y - this.target.y) * Math.cos(this.travel);
+      const side = along + this.earlyExit >= 0;
+      if (this.prevSide === null) this.prevSide = side;
+      if (side !== this.prevSide && this.minSpeed !== 0) return 'early exit';
+      this.prevSide = side;
 
-      let latOut = this.lat.update(latErr);
-      let angOut = this.ang.update(angErr * R2D);
-      if (this.close) angOut = 0;
-      angOut = clamp(angOut, -this.maxSpeed, this.maxSpeed);
-      latOut = clamp(latOut, -this.maxSpeed, this.maxSpeed);
-      if (!this.close) latOut = slew(latOut, this.prevLat, ch.cfg.lateral.slew);
-      this.prevLat = latOut;
-      // slow down while pointing away from the target
-      if (!this.close) latOut *= Math.max(0, Math.cos(angErr));
-      if (this.minSpeed !== 0 && latOut > 0 && latOut < this.minSpeed) latOut = this.minSpeed;
+      // errors (the robot's heading is flipped for backwards motion, the lateral error is not)
+      const bearing = Math.atan2(dx, dy);
+      const adjusted = this.forwards ? pose.t : pose.t + PI;
+      const angularError = normPi(bearing - adjusted);
+      const lateralError = distTarget * Math.cos(normPi(bearing - pose.t));
 
-      let left = latOut + angOut;
-      let right = latOut - angOut;
-      const ratio = Math.max(Math.abs(left), Math.abs(right)) / (this.maxSpeed || 1);
+      this.exits.update(lateralError);
+
+      let lateralOut = this.lat.update(lateralError);
+      let angularOut = this.ang.update(angularError * R2D);
+      if (this.close) angularOut = 0;
+
+      angularOut = clamp(angularOut, -this.maxSpeed, this.maxSpeed);
+      angularOut = slew(angularOut, this.prevAng, ch.cfg.angular.slew);
+
+      lateralOut = clamp(lateralOut, -this.maxSpeed, this.maxSpeed);
+      if (!this.close) lateralOut = slew(lateralOut, this.prevLat, ch.cfg.lateral.slew);
+
+      // never drive away from the target while approaching
+      if (this.forwards && !this.close) lateralOut = Math.max(lateralOut, 0);
+      else if (!this.forwards && !this.close) lateralOut = Math.min(lateralOut, 0);
+
+      // minimum speed overrides everything but maxSpeed
+      const minS = Math.abs(this.minSpeed);
+      if (this.forwards && lateralOut < minS && lateralOut > 0) lateralOut = minS;
+      if (!this.forwards && -lateralOut < minS && lateralOut < 0) lateralOut = -minS;
+
+      this.prevAng = angularOut;
+      this.prevLat = lateralOut;
+
+      let left = lateralOut + angularOut;
+      let right = lateralOut - angularOut;
+      const ratio = Math.max(Math.abs(left), Math.abs(right)) / this.maxSpeed;
       if (ratio > 1) {
         left /= ratio;
         right /= ratio;
       }
-      ch.drive(this.forwards ? left : -right, this.forwards ? right : -left);
+      ch.drive(left, right);
       return null;
     }
     errorText() {
@@ -209,88 +263,117 @@
       super(ch, 'moveToPose', [fmt(x), fmt(y), fmt(thetaDeg), timeout].join(', '), timeout);
       this.forwards = p.forwards !== false;
       this.target = { x, y };
+      // direction of travel at the target (compass); backwards motion arrives with the rear first
       this.targetT = thetaDeg * D2R + (this.forwards ? 0 : PI);
       this.lead = p.lead == null ? 0.6 : p.lead;
       this.drift = p.horizontalDrift ? p.horizontalDrift : ch.cfg.horizontalDrift;
-      this.maxSpeed = clamp(p.maxSpeed == null ? 127 : p.maxSpeed, 0, 127);
-      this.minSpeed = Math.abs(p.minSpeed || 0);
+      this.maxSpeed = p.maxSpeed == null ? 127 : p.maxSpeed;
+      this.minSpeed = p.minSpeed || 0;
       this.earlyExit = p.earlyExitRange || 0;
+      this.remaining = 0;
+      this.headingErr = 0;
+    }
+    begin() {
+      super.begin();
+      const ch = this.ch;
       const lat = ch.cfg.lateral;
       const ang = ch.cfg.angular;
       this.lat = new PID(lat.kP, lat.kI, lat.kD, lat.antiWindup);
       this.ang = new PID(ang.kP, ang.kI, ang.kD, ang.antiWindup);
-      this.settle = new Settle(lat, ch.clock);
+      this.latExits = new Exits(lat, ch.clock);
+      this.angExits = new Exits(ang, ch.clock);
+      const s = ch.poseRad();
+      this.last = { x: s.x, y: s.y };
       this.close = false;
+      this.lateralSettled = false;
+      this.prevSameSide = false;
       this.prevLat = 0;
-      this.last = null;
-      this.remaining = 0;
-      this.headingErr = 0;
     }
     step() {
       const ch = this.ch;
-      const pose = ch.poseRad();
-      if (!this.forwards) pose.t += PI;
-      if (this.last) this.dist += Math.hypot(pose.x - this.last.x, pose.y - this.last.y);
-      this.last = { x: pose.x, y: pose.y };
+      // loop condition: leave once close, lateral settled (both exits) and the heading has exited (either)
+      if (this.timedOut()) return 'timeout';
+      if (this.close && this.lateralSettled && this.angExits.either) return 'settled';
 
+      const pose = ch.poseRad();
+      this.dist += Math.hypot(pose.x - this.last.x, pose.y - this.last.y);
+      this.last = { x: pose.x, y: pose.y };
       const T = this.target;
-      const dist = Math.hypot(T.x - pose.x, T.y - pose.y);
-      this.remaining = dist;
-      if (!this.close && dist < 7.5) {
+      const distTarget = Math.hypot(T.x - pose.x, T.y - pose.y);
+      this.remaining = distTarget;
+
+      if (distTarget < 7.5 && !this.close) {
         this.close = true;
         this.maxSpeed = Math.max(Math.abs(this.prevLat), 60);
       }
-      if (this.minSpeed !== 0 && dist < this.earlyExit) return 'early exit';
+      if (this.latExits.both) this.lateralSettled = true;
 
-      // boomerang "carrot": a point behind the target along its final heading
-      let carrot = T;
-      if (!this.close) {
-        carrot = {
-          x: T.x - Math.sin(this.targetT) * this.lead * dist,
-          y: T.y - Math.cos(this.targetT) * this.lead * dist,
-        };
-      }
+      // boomerang carrot
+      const ux = Math.sin(this.targetT);
+      const uy = Math.cos(this.targetT);
+      let carrot = { x: T.x - ux * this.lead * distTarget, y: T.y - uy * this.lead * distTarget };
+      if (this.close) carrot = T;
       ch.aim = carrot;
+
+      // motion chaining: which side of the (shifted) target line are the robot and the carrot on?
+      const eps = this.earlyExit;
+      const robotSide = (pose.x - T.x) * ux + (pose.y - T.y) * uy + eps >= 0;
+      const carrotSide = (carrot.x - T.x) * ux + (carrot.y - T.y) * uy + eps >= 0;
+      const sameSide = robotSide === carrotSide;
+      if (!sameSide && this.prevSameSide && this.close && this.minSpeed !== 0) return 'early exit';
+      this.prevSameSide = sameSide;
+
+      // errors
       const cdx = carrot.x - pose.x;
       const cdy = carrot.y - pose.y;
-      const cdist = Math.hypot(cdx, cdy);
-      const toCarrot = normPi(Math.atan2(cdx, cdy) - pose.t);
-      let angErr = this.close ? normPi(this.targetT - pose.t) : toCarrot;
-      this.headingErr = normPi(this.targetT - pose.t);
-      const latErr = cdist * Math.cos(toCarrot);
+      const toCarrot = Math.atan2(cdx, cdy);
+      const adjusted = this.forwards ? pose.t : pose.t + PI;
+      const angularError = this.close ? normPi(this.targetT - adjusted) : normPi(toCarrot - adjusted);
+      this.headingErr = normPi(this.targetT - adjusted);
+      let lateralError = Math.hypot(cdx, cdy);
+      const c = Math.cos(normPi(toCarrot - pose.t));
+      if (this.close) lateralError *= c;
+      else lateralError *= c < 0 ? -1 : 1;
 
-      if (this.settle.update(latErr)) return 'settled';
-      if (this.timedOut()) return 'timeout';
+      this.latExits.update(lateralError);
+      this.angExits.update(angularError * R2D);
 
-      let latOut = this.lat.update(latErr);
-      let angOut = this.ang.update(angErr * R2D);
-      angOut = clamp(angOut, -this.maxSpeed, this.maxSpeed);
-      latOut = clamp(latOut, -this.maxSpeed, this.maxSpeed);
-      if (!this.close) latOut = slew(latOut, this.prevLat, ch.cfg.lateral.slew);
+      let lateralOut = this.lat.update(lateralError);
+      let angularOut = this.ang.update(angularError * R2D);
 
-      // cap speed by what the drivetrain can corner at without slipping
-      if (!this.close && this.drift > 0 && cdist > 1e-6) {
-        const curv = Math.abs((2 * Math.sin(toCarrot)) / cdist);
-        const radius = curv < 1e-9 ? Infinity : 1 / curv;
+      angularOut = clamp(angularOut, -this.maxSpeed, this.maxSpeed);
+      lateralOut = clamp(lateralOut, -this.maxSpeed, this.maxSpeed);
+      if (!this.close) lateralOut = slew(lateralOut, this.prevLat, ch.cfg.lateral.slew);
+
+      // the fastest it can take this curve without slipping sideways
+      const cd = Math.hypot(cdx, cdy);
+      if (cd > 1e-9) {
+        const curv = Math.abs((2 * Math.sin(normPi(toCarrot - pose.t))) / cd);
+        const radius = curv < 1e-12 ? Infinity : 1 / curv;
         const maxSlip = Math.sqrt(this.drift * radius * 9.8);
-        latOut = clamp(latOut, -maxSlip, maxSlip);
+        if (isFinite(maxSlip)) lateralOut = clamp(lateralOut, -maxSlip, maxSlip);
       }
-      // prioritise turning over driving
-      const overturn = Math.abs(angOut) + Math.abs(latOut) - this.maxSpeed;
-      if (overturn > 0) latOut -= latOut > 0 ? overturn : -overturn;
-      // never drive away from the target
-      if (!this.minSpeed && latOut < 0) latOut = 0;
-      this.prevLat = latOut;
-      if (this.minSpeed !== 0 && latOut > 0 && latOut < this.minSpeed) latOut = this.minSpeed;
+      // turning has priority over driving
+      const overturn = Math.abs(angularOut) + Math.abs(lateralOut) - this.maxSpeed;
+      if (overturn > 0) lateralOut -= lateralOut > 0 ? overturn : -overturn;
 
-      let left = latOut + angOut;
-      let right = latOut - angOut;
-      const ratio = Math.max(Math.abs(left), Math.abs(right)) / (this.maxSpeed || 1);
+      if (this.forwards && !this.close) lateralOut = Math.max(lateralOut, 0);
+      else if (!this.forwards && !this.close) lateralOut = Math.min(lateralOut, 0);
+
+      const minS = Math.abs(this.minSpeed);
+      if (this.forwards && lateralOut < minS && lateralOut > 0) lateralOut = minS;
+      if (!this.forwards && -lateralOut < minS && lateralOut < 0) lateralOut = -minS;
+
+      this.prevLat = lateralOut;
+
+      let left = lateralOut + angularOut;
+      let right = lateralOut - angularOut;
+      const ratio = Math.max(Math.abs(left), Math.abs(right)) / this.maxSpeed;
       if (ratio > 1) {
         left /= ratio;
         right /= ratio;
       }
-      ch.drive(this.forwards ? left : -right, this.forwards ? right : -left);
+      ch.drive(left, right);
       return null;
     }
     errorText() {
@@ -298,57 +381,78 @@
     }
   }
 
-  /** turnToHeading / turnToPoint / swingToHeading / swingToPoint */
+  /** turnToHeading / turnToPoint / swingToHeading / swingToPoint (all in degrees, like LemLib) */
   class TurnMotion extends Motion {
     constructor(ch, o) {
       super(ch, o.name, o.argText, o.timeout);
       this.mode = o.mode; // 'heading' | 'point'
-      this.targetT = o.mode === 'heading' ? o.thetaDeg * D2R : 0;
+      this.thetaDeg = o.thetaDeg;
       this.point = o.point;
       this.forwards = o.forwards !== false;
       this.direction = o.direction || 'AUTO';
       this.swing = o.swing || null; // 'LEFT' | 'RIGHT' = which side stays locked
-      this.maxSpeed = clamp(o.maxSpeed == null ? 127 : o.maxSpeed, 0, 127);
+      this.maxSpeed = o.maxSpeed == null ? 127 : o.maxSpeed;
       this.minSpeed = Math.abs(o.minSpeed || 0);
       this.earlyExit = o.earlyExitRange || 0;
+      this.errDeg = 0;
+    }
+    begin() {
+      super.begin();
+      const ch = this.ch;
       const ang = ch.cfg.angular;
       this.pid = new PID(ang.kP, ang.kI, ang.kD, ang.antiWindup);
-      this.settle = new Settle(ang, ch.clock);
-      this.state = { latched: false };
-      this.prevOut = 0;
-      this.lastT = null;
-      this.errDeg = 0;
+      this.exits = new Exits(ang, ch.clock);
+      this.startT = ch.poseRad().t * R2D;
+      this.settling = false;
+      this.prevRaw = null;
+      this.prevDelta = null;
+      this.prevPower = 0;
     }
     step() {
       const ch = this.ch;
-      const pose = ch.poseRad();
-      if (this.lastT != null) this.dist += Math.abs(normPi(pose.t - this.lastT)) * R2D;
-      this.lastT = pose.t;
-
-      let target = this.targetT;
-      if (this.mode === 'point') {
-        target = Math.atan2(this.point.x - pose.x, this.point.y - pose.y) + (this.forwards ? 0 : PI);
-        ch.aim = this.point;
-      }
-      const raw = normPi(target - pose.t);
-      const err = dirError(raw, this.direction, this.state);
-      this.errDeg = err * R2D;
-
-      if (this.minSpeed !== 0 && Math.abs(this.errDeg) < this.earlyExit) return 'early exit';
-      if (this.settle.update(this.errDeg)) return 'settled';
       if (this.timedOut()) return 'timeout';
+      if (this.exits.either) return 'settled';
 
-      let out = this.pid.update(this.errDeg);
-      out = slew(out, this.prevOut, ch.cfg.angular.slew);
-      this.prevOut = out;
-      out = clamp(out, -this.maxSpeed, this.maxSpeed);
-      if (this.minSpeed !== 0) {
-        if (out < 0 && out > -this.minSpeed) out = -this.minSpeed;
-        else if (out > 0 && out < this.minSpeed) out = this.minSpeed;
-      }
-      if (this.swing === 'LEFT') ch.drive(0, -out);
-      else if (this.swing === 'RIGHT') ch.drive(out, 0);
-      else ch.drive(out, -out);
+      const pose = ch.poseRad();
+      let theta = pose.t * R2D;
+      if (this.mode === 'point') theta = this.forwards ? theta % 360 : (theta - 180) % 360;
+      else if (this.swing) theta = theta % 360;
+
+      this.dist = Math.abs(angleErrorDeg(theta, this.startT, 'AUTO'));
+
+      let target;
+      if (this.mode === 'point') {
+        target = (Math.atan2(this.point.x - pose.x, this.point.y - pose.y) * R2D) % 360;
+        ch.aim = this.point;
+      } else target = this.thetaDeg;
+
+      // once the shortest-path error changes sign the robot has passed the target: stop forcing a direction
+      const raw = angleErrorDeg(target, theta, 'AUTO');
+      if (this.prevRaw === null) this.prevRaw = raw;
+      if (sgn(raw) !== sgn(this.prevRaw)) this.settling = true;
+      this.prevRaw = raw;
+
+      const delta = this.settling ? angleErrorDeg(target, theta, 'AUTO') : angleErrorDeg(target, theta, this.direction);
+      if (this.prevDelta === null) this.prevDelta = delta;
+      this.errDeg = delta;
+
+      // motion chaining
+      if (this.minSpeed !== 0 && Math.abs(delta) < this.earlyExit) return 'early exit';
+      if (this.minSpeed !== 0 && sgn(delta) !== sgn(this.prevDelta)) return 'early exit';
+
+      let power = this.pid.update(delta);
+      this.exits.update(delta);
+
+      if (power > this.maxSpeed) power = this.maxSpeed;
+      else if (power < -this.maxSpeed) power = -this.maxSpeed;
+      if (Math.abs(delta) > 20) power = slew(power, this.prevPower, ch.cfg.angular.slew);
+      if (power < 0 && power > -this.minSpeed) power = -this.minSpeed;
+      else if (power > 0 && power < this.minSpeed) power = this.minSpeed;
+      this.prevPower = power;
+
+      if (this.swing === 'LEFT') ch.drive(0, -power);
+      else if (this.swing === 'RIGHT') ch.drive(power, 0);
+      else ch.drive(power, -power);
       return null;
     }
     errorText() {
@@ -365,19 +469,21 @@
     const b = 2 * (fx * dx + fy * dy);
     const k = fx * fx + fy * fy - r * r;
     const disc = b * b - 4 * a * k;
-    if (a === 0 || disc < 0) return -1;
-    const s = Math.sqrt(disc);
-    const t1 = (-b - s) / (2 * a);
-    const t2 = (-b + s) / (2 * a);
-    if (t2 >= 0 && t2 <= 1) return t2;
-    if (t1 >= 0 && t1 <= 1) return t1;
+    if (disc >= 0) {
+      const sq = Math.sqrt(disc);
+      const t1 = (-b - sq) / (2 * a);
+      const t2 = (-b + sq) / (2 * a);
+      if (t2 >= 0 && t2 <= 1) return t2;
+      if (t1 >= 0 && t1 <= 1) return t1;
+    }
     return -1;
   }
 
   /**
-   * Pure pursuit along a list of {x, y, v} points (v = 0..127). Points after
-   * `endIdx` are the "ghost" tail LemLib paths carry past the real end: the robot
-   * chases it for a smooth stop but finishes at pts[endIdx].
+   * Pure pursuit along a list of {x, y, v} points (v = 0..127), as in LemLib: the closest point
+   * anywhere on the path sets the speed (ramped by the lateral slew), the lookahead point is the
+   * first circle/path crossing at or after the closest point, and the motion ends when the closest
+   * point has speed 0. Points after `endIdx` are a synthetic stopping tail (see sim.js).
    */
   class FollowMotion extends Motion {
     constructor(ch, pts, endIdx, lookahead, timeout, forwards, pathName) {
@@ -386,76 +492,87 @@
       this.endIdx = endIdx;
       this.lookahead = lookahead;
       this.forwards = forwards !== false;
-      this.closest = 0;
-      this.laIdx = 0;
-      this.laT = 0;
-      this.la = { x: pts[0].x, y: pts[0].y };
-      this.last = null;
+      this.ticks = 0;
+      this.remaining = 0;
+      // paths exported from jerry.io end in a speed-0 point; plain point lists do not
+      this.hasStop = pts.slice(0, endIdx + 1).some((q) => q.v === 0);
+    }
+    begin() {
+      super.begin();
+      this.lastLA = { x: this.pts[0].x, y: this.pts[0].y, idx: 0 };
+      this.prevVel = 0;
+      const s = this.ch.poseRad();
+      this.last = { x: s.x, y: s.y };
       this.pastEnd = 0;
       this.prevEndDist = Infinity;
-      this.remaining = 0;
     }
     step() {
       const ch = this.ch;
       const pts = this.pts;
-      const n = this.endIdx + 1; // real points; anything after is the ghost tail
+      if (this.ticks >= Math.floor(this.timeout / 10)) return 'timeout';
+      this.ticks++;
+
       const pose = ch.poseRad();
-      if (!this.forwards) pose.t += PI;
-      if (this.last) this.dist += Math.hypot(pose.x - this.last.x, pose.y - this.last.y);
+      if (!this.forwards) pose.t -= PI;
+      this.dist += Math.hypot(pose.x - this.last.x, pose.y - this.last.y);
       this.last = { x: pose.x, y: pose.y };
 
-      // closest path point (searched in a window so crossing paths do not jump)
+      // closest point on the whole path
+      let closest = 0;
       let best = Infinity;
-      for (let i = this.closest; i < Math.min(n, this.closest + 40); i++) {
+      for (let i = 0; i < pts.length; i++) {
         const d = Math.hypot(pts[i].x - pose.x, pts[i].y - pose.y);
         if (d < best) {
           best = d;
-          this.closest = i;
+          closest = i;
         }
       }
-      const end = pts[n - 1];
+      const end = pts[this.endIdx];
       const endDist = Math.hypot(end.x - pose.x, end.y - pose.y);
       this.remaining = endDist;
 
-      if (endDist < 2.5) return 'reached end';
-      if (this.closest === n - 1) {
-        this.pastEnd = endDist > this.prevEndDist + 1e-6 ? this.pastEnd + 1 : 0;
-        if (this.pastEnd > 25) return 'passed end';
+      if (this.hasStop) {
+        if (pts[closest].v === 0) return 'reached end';
+      } else {
+        // no stop point in the data: finish at the last real point
+        if (endDist < 2.5) return 'reached end';
+        if (closest >= this.endIdx) {
+          this.pastEnd = endDist > this.prevEndDist + 1e-6 ? this.pastEnd + 1 : 0;
+          if (this.pastEnd > 25) return 'passed end';
+        }
+        this.prevEndDist = endDist;
       }
-      this.prevEndDist = endDist;
-      if (this.timedOut()) return 'timeout';
 
-      // lookahead point: the circle around the robot meets the path (or its ghost tail) ahead
-      {
-        const limit = Math.min(pts.length - 1, this.laIdx + 60);
-        for (let i = this.laIdx; i < limit; i++) {
-          const t = circleIntersect(pts[i], pts[i + 1], pose, this.lookahead);
-          if (t >= 0 && (i > this.laIdx || t >= this.laT)) {
-            this.laIdx = i;
-            this.laT = t;
-            this.la = { x: lerp(pts[i].x, pts[i + 1].x, t), y: lerp(pts[i].y, pts[i + 1].y, t) };
-            break;
-          }
+      // lookahead point: first crossing at or after the closest point / the last lookahead
+      const start = Math.max(closest, this.lastLA.idx);
+      for (let i = start; i < pts.length - 1; i++) {
+        const t = circleIntersect(pts[i], pts[i + 1], pose, this.lookahead);
+        if (t !== -1) {
+          this.lastLA = { x: lerp(pts[i].x, pts[i + 1].x, t), y: lerp(pts[i].y, pts[i + 1].y, t), idx: i };
+          break;
         }
       }
-      ch.aim = this.la;
+      ch.aim = this.lastLA;
 
-      const ldx = this.la.x - pose.x;
-      const ldy = this.la.y - pose.y;
+      const ldx = this.lastLA.x - pose.x;
+      const ldy = this.lastLA.y - pose.y;
       const ld = Math.hypot(ldx, ldy);
-      const toLa = normPi(Math.atan2(ldx, ldy) - pose.t);
-      const curvature = ld > 1e-6 ? (2 * Math.sin(toLa)) / ld : 0;
+      const curvature = ld > 1e-9 ? (2 * Math.sin(normPi(Math.atan2(ldx, ldy) - pose.t))) / ld : 0;
 
-      const v = Math.max(8, pts[this.closest].v);
+      let vel = pts[closest].v;
+      vel = slew(vel, this.prevVel, ch.cfg.lateral.slew);
+      this.prevVel = vel;
+
       const tw = ch.cfg.trackWidth;
-      let left = (v * (2 + curvature * tw)) / 2;
-      let right = (v * (2 - curvature * tw)) / 2;
+      let left = (vel * (2 + curvature * tw)) / 2;
+      let right = (vel * (2 - curvature * tw)) / 2;
       const ratio = Math.max(Math.abs(left), Math.abs(right)) / 127;
       if (ratio > 1) {
         left /= ratio;
         right /= ratio;
       }
-      ch.drive(this.forwards ? left : -right, this.forwards ? right : -left);
+      if (this.forwards) ch.drive(left, right);
+      else ch.drive(-right, -left);
       return null;
     }
     errorText() {
@@ -479,7 +596,6 @@
       // code frame = field start pose; (0,0,0) in code is the start pose
       this.frame = { px: startPose.x, py: startPose.y, psi: startPose.h * D2R };
       this.motion = null;
-      this.stopIn = null;
       this.idleWaiters = [];
       this.aim = null;
       this.motionCount = 0;
@@ -537,20 +653,15 @@
         const why = m.step();
         if (why) this.endMotion(m, why);
       }
-      if (!this.motion && this.stopIn !== null) {
-        if (this.stopIn <= 0) {
-          this.drive(0, 0);
-          this.stopIn = null;
-        } else this.stopIn--;
-      }
     }
     endMotion(m, why) {
       m.finish(why);
       if (this.hooks.motionEnd) this.hooks.motionEnd(m);
       this.motion = null;
       this.aim = null;
-      // a motion that exits early hands over to the next one without a braking tick
-      this.stopIn = why === 'early exit' ? 1 : 0;
+      // like LemLib, every motion stops the drivetrain when it ends (a chained next motion
+      // immediately drives it again, so the robot keeps most of its speed)
+      this.drive(0, 0);
       const w = this.idleWaiters;
       this.idleWaiters = [];
       w.forEach((r) => r());
@@ -562,11 +673,10 @@
     async _start(motion, isAsync) {
       // LemLib blocks the calling thread until the previous motion has finished
       while (this.motion) await this._idle();
-      motion.t0 = this.clock.now;
       motion.id = this.motionCount++;
       this.motions.push(motion);
       this.motion = motion;
-      this.stopIn = null;
+      motion.begin();
       if (this.hooks.motionStart) this.hooks.motionStart(motion);
       if (isAsync === false) await motion.donePromise;
       else await this.clock.sleep(TICK_MS);
@@ -656,13 +766,14 @@
       return this._start(new FollowMotion(this, pathPts, endIdx, lookahead, timeout, forwards, pathName), isAsync);
     }
 
+    /** LemLib: delay(10) first, then wait while the distance travelled is <= dist */
     async waitUntil(dist) {
-      const m = this.motion;
-      if (!m) return;
-      while (this.motion === m && m.dist <= dist) await this.clock.sleep(TICK_MS);
+      do await this.clock.sleep(TICK_MS);
+      while (this.motion && this.motion.dist <= dist);
     }
     async waitUntilDone() {
-      while (this.motion) await this._idle();
+      do await this.clock.sleep(TICK_MS);
+      while (this.motion);
     }
     cancelMotion() {
       if (this.motion) this.endMotion(this.motion, 'cancelled');
