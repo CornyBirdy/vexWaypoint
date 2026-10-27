@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Waypoint reveal - stage</title>
+<style>
+  :root {
+    --bg: #07070c;
+    --ink: #f4f2ff;
+    --ink-2: #b9b4d4;
+    --accent: #a78bfa;
+    --accent-hi: #c4b5fd;
+    --accent-lo: #6d4aff;
+    --warn: #fdd663;
+    --ok: #81c995;
+    --sans: "Inter", system-ui, sans-serif;
+    --display: "Archivo Black", "Arial Black", Impact, sans-serif;
+    --mono: "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); }
+  #frame { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); font-family: var(--sans); color: var(--ink); }
+
+  /* ---------- background */
+  #bg { position: absolute; inset: 0; pointer-events: none; }
+  #bg .glow { position: absolute; border-radius: 50%; filter: blur(120px); will-change: transform; }
+  #bg .g1 { width: 1100px; height: 1100px; left: 1050px; top: -450px; background: radial-gradient(circle, rgba(109,74,255,.55), rgba(109,74,255,0) 70%); }
+  #bg .g2 { width: 1000px; height: 1000px; left: -350px; top: 520px; background: radial-gradient(circle, rgba(56,120,255,.30), rgba(56,120,255,0) 70%); }
+  #bg .grid { position: absolute; inset: 0;
+    background-image: linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+    background-size: 96px 96px; background-position: center;
+    -webkit-mask-image: radial-gradient(ellipse at 50% 50%, #000 15%, transparent 75%); mask-image: radial-gradient(ellipse at 50% 50%, #000 15%, transparent 75%); }
+  #vignette { position: absolute; inset: 0; pointer-events: none; z-index: 40;
+    background: radial-gradient(ellipse at 50% 50%, transparent 55%, rgba(0,0,0,.55) 100%); }
+
+  /* ---------- app window */
+  #appLayer { position: absolute; inset: 0; opacity: 0; -webkit-mask-image: linear-gradient(90deg, transparent 640px, #000 780px); mask-image: linear-gradient(90deg, transparent 640px, #000 780px); }
+  #cam { position: absolute; left: 0; top: 0; width: 1200px; height: 900px; transform-origin: 0 0; will-change: transform; }
+  #win { position: absolute; inset: 0; border-radius: 14px; overflow: hidden; background: #202124;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.10), 0 40px 120px rgba(0,0,0,.65), 0 0 160px rgba(109,74,255,.22); }
+  #app { width: 1200px; height: 900px; border: 0; display: block; background: #202124; }
+
+  /* ---------- fake cursor */
+  #cursor { position: absolute; left: 0; top: 0; width: 34px; height: 34px; z-index: 30; pointer-events: none; opacity: 0;
+    filter: drop-shadow(0 3px 5px rgba(0,0,0,.55)); }
+  #ripple { position: absolute; left: 0; top: 0; width: 80px; height: 80px; margin: -40px 0 0 -40px; border-radius: 50%; z-index: 29; pointer-events: none; opacity: 0;
+    border: 3px solid var(--accent-hi); box-shadow: 0 0 24px rgba(167,139,250,.7); }
+
+  /* ---------- caption */
+  #cap { position: absolute; left: 110px; top: 0; bottom: 0; width: 640px; display: flex; flex-direction: column; justify-content: center; z-index: 20; pointer-events: none; opacity: 0; }
+  #cap .kicker { display: flex; align-items: center; gap: 18px; font: 800 24px/1 var(--sans); letter-spacing: .28em; text-transform: uppercase; color: var(--accent-hi); margin-bottom: 34px; }
+  #cap .kicker i { display: block; width: 64px; height: 4px; background: linear-gradient(90deg, var(--accent-lo), var(--accent-hi)); transform-origin: 0 50%; transform: skewX(-30deg); }
+  #cap h2 { margin: 0; font: 400 78px/1.02 var(--display); letter-spacing: -.01em; text-transform: uppercase; transform: skewX(-11deg); transform-origin: 0 100%; }
+  #cap h2 .ln { display: block; overflow: hidden; padding: 0 0 10px 0; margin-bottom: -10px; }
+  #cap h2 .in { display: block; will-change: transform; }
+  #cap h2 em { font-style: normal; background: linear-gradient(100deg, var(--accent-hi), var(--accent-lo) 90%); -webkit-background-clip: text; background-clip: text; color: transparent; padding-right: .08em; }
+  #cap p { margin: 34px 0 0; font: 500 33px/1.35 var(--sans); color: var(--ink-2); max-width: 560px; }
+  #cap p b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- live readout lens (mirrors a real value from the app, enlarged) */
+  #lens { position: absolute; left: 110px; top: 790px; z-index: 21; opacity: 0; pointer-events: none; padding: 26px 34px 28px; border-radius: 20px;
+    background: linear-gradient(160deg, rgba(255,255,255,.10), rgba(255,255,255,.04)); border: 1px solid rgba(255,255,255,.16);
+    box-shadow: 0 24px 60px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.12); backdrop-filter: blur(8px); }
+  #lens .lbl { font: 700 20px/1 var(--sans); letter-spacing: .22em; text-transform: uppercase; color: var(--ink-2); margin-bottom: 14px; }
+  #lens .val { font: 400 54px/1 var(--display); transform: skewX(-11deg); transform-origin: 0 100%; white-space: nowrap; }
+  #lens .val.ok { color: var(--ok); }
+  #lens .val.over { color: #f28b82; }
+
+  /* ---------- scenes shared */
+  .scene { position: absolute; inset: 0; opacity: 0; z-index: 15; pointer-events: none; }
+
+  /* logo scene */
+  #sceneLogo { display: flex; align-items: center; justify-content: center; }
+  #sceneLogo svg { width: 1360px; height: auto; overflow: visible; }
+  #sceneLogo .presents { position: absolute; left: 0; right: 0; top: 780px; text-align: center; font: 700 26px/1 var(--sans); letter-spacing: .6em; text-indent: .6em; color: var(--ink-2); text-transform: uppercase; }
+  #sceneLogo .sweep { position: absolute; top: 0; bottom: 0; width: 220px; left: 0; transform: skewX(-11deg); mix-blend-mode: screen;
+    background: linear-gradient(90deg, transparent, rgba(196,181,253,.55), transparent); filter: blur(6px); opacity: 0; }
+  /* the supplied logo animation, unchanged */
+  .logo-wipe{transform:translateX(560px)}
+  .logo-w1{transform-origin:85px 81px}
+  .logo-w2{transform-origin:85px 110px}
+  @keyframes wipeOut{from{transform:translateX(0)}to{transform:translateX(560px)}}
+  @keyframes sliceIn{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+  @keyframes numIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+  .run .logo-wipe{animation:wipeOut .7s cubic-bezier(.16,1,.3,1) forwards}
+  .run .logo-w1{animation:sliceIn .34s cubic-bezier(.16,1,.3,1) .58s backwards}
+  .run .logo-w2{animation:sliceIn .34s cubic-bezier(.16,1,.3,1) .70s backwards}
+  .run .logo-num{animation:numIn .5s cubic-bezier(.16,1,.3,1) 1.05s backwards}
+
+  /* title scene */
+  #sceneTitle svg { position: absolute; inset: 0; width: 1920px; height: 1080px; overflow: visible; }
+  #sceneTitle .word { font: 400 262px/1 var(--display); letter-spacing: -.01em; }
+  #sceneTitle .tag { position: absolute; left: 0; right: 0; top: 850px; text-align: center; font: 700 30px/1 var(--sans); letter-spacing: .5em; text-indent: .5em; color: var(--ink-2); text-transform: uppercase; }
+
+  /* feature grid */
+  #sceneGrid .head { position: absolute; left: 0; right: 0; top: 100px; text-align: center; font: 800 26px/1 var(--sans); letter-spacing: .32em; text-indent: .32em; color: var(--accent-hi); text-transform: uppercase; }
+  #sceneGrid .title { position: absolute; left: 0; right: 0; top: 150px; text-align: center; font: 400 84px/1 var(--display); text-transform: uppercase; transform: skewX(-11deg); }
+  #sceneGrid .title em { font-style: normal; color: var(--accent-hi); }
+  #tiles { position: absolute; left: 160px; right: 160px; top: 320px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
+  .tile { position: relative; height: 296px; border-radius: 22px; padding: 34px 36px; overflow: hidden;
+    background: linear-gradient(160deg, rgba(255,255,255,.075), rgba(255,255,255,.025)); border: 1px solid rgba(255,255,255,.10);
+    box-shadow: 0 24px 60px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.08); }
+  .tile .ico { width: 68px; height: 68px; border-radius: 18px; display: grid; place-items: center; background: linear-gradient(145deg, var(--accent-lo), #8f6dff); box-shadow: 0 10px 30px rgba(109,74,255,.5); }
+  .tile .ico svg { width: 36px; height: 36px; fill: none; stroke: #fff; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+  .tile h3 { margin: 30px 0 10px; font: 800 38px/1.1 var(--sans); letter-spacing: -.01em; }
+  .tile p { margin: 0; font: 500 25px/1.4 var(--sans); color: var(--ink-2); }
+  .tile .n { position: absolute; right: 30px; top: 22px; font: 400 64px/1 var(--display); color: rgba(255,255,255,.06); }
+
+  /* end card */
+  #sceneEnd { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  #sceneEnd .mark { display: flex; align-items: center; gap: 28px; }
+  #sceneEnd .word { font: 400 220px/1 var(--display); transform: skewX(-11deg); letter-spacing: -.01em; }
+  #sceneEnd .word em { font-style: normal; background: linear-gradient(100deg, var(--accent-hi), var(--accent-lo)); -webkit-background-clip: text; background-clip: text; color: transparent; padding-right: .06em; }
+  #sceneEnd .line { margin-top: 26px; font: 600 40px/1.3 var(--sans); color: var(--ink); text-align: center; }
+  #sceneEnd .line span { color: var(--ink-2); font-weight: 500; }
+  #sceneEnd .chips { margin-top: 44px; display: flex; gap: 16px; }
+  #sceneEnd .chip { padding: 14px 26px; border-radius: 999px; font: 700 24px/1 var(--sans); letter-spacing: .04em; color: var(--ink); background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.14); }
+  #sceneEnd .chip.hot { background: linear-gradient(145deg, var(--accent-lo), #8f6dff); border-color: transparent; box-shadow: 0 10px 34px rgba(109,74,255,.5); }
+  #sceneEnd .by { position: absolute; bottom: 86px; left: 0; right: 0; display: flex; justify-content: center; align-items: center; gap: 22px; font: 600 24px/1 var(--sans); letter-spacing: .3em; color: var(--ink-2); text-transform: uppercase; }
+  #sceneEnd .by img { height: 54px; width: auto; }
+
+  /* ---------- wipe */
+  .band { position: absolute; top: -80px; bottom: -80px; z-index: 50; transform: skewX(-11deg); pointer-events: none; }
+  #wipeA { background: linear-gradient(90deg, #4f2fe0, #6d4aff 60%, #7e5cff); }
+  #wipeB { background: #0d0b1c; }
+</style>
+</head>
+<body>
+<div id="frame">
+  <div id="bg"><div class="glow g1"></div><div class="glow g2"></div><div class="grid"></div></div>
+
+  <div id="appLayer"><div id="cam"><div id="win"><iframe id="app" title="Waypoint"></iframe></div></div></div>
+  <div id="cap"></div>
+  <div id="lens"><div class="lbl"></div><div class="val"></div></div>
+  <div id="ripple"></div>
+  <svg id="cursor" viewBox="0 0 34 34"><path d="M5 3 L5 26.5 L11.2 20.8 L15.4 30.2 L19.6 28.4 L15.5 19.2 L24 19 Z" fill="#fff" stroke="#111" stroke-width="2" stroke-linejoin="round"/></svg>
+
+  <!-- 1. Invictus logo reveal (the supplied animated logo, recoloured white) -->
+  <div id="sceneLogo" class="scene">
+    <svg id="logo" class="run" viewBox="0 0 680 220" role="img" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <mask id="logoMask" maskUnits="userSpaceOnUse" x="0" y="0" width="680" height="220">
+          <rect x="0" y="0" width="680" height="220" fill="#000"/>
+          <g transform="translate(0,130) skewX(-11) translate(0,-130)">
+            <text x="140" y="130" font-family="'Archivo Black','Arial Black',Impact,sans-serif" font-weight="900" font-size="96" fill="#fff">INVICTUS</text>
+            <rect class="logo-wipe" x="130" y="44" width="560" height="102" fill="#000"/>
+            <polygon class="logo-w1" points="85,71 85,91 292,81" fill="#000"/>
+            <polygon class="logo-w2" points="85,100 85,120 292,110" fill="#000"/>
+            <text class="logo-num" x="508" y="168" font-family="'Helvetica Neue',Arial,sans-serif" font-weight="700" font-size="26" letter-spacing="2" fill="#fff">52111A</text>
+          </g>
+        </mask>
+      </defs>
+      <linearGradient id="gSheen" gradientUnits="userSpaceOnUse" x1="-200" y1="0" x2="-60" y2="0"><stop offset="0" stop-color="#a78bfa" stop-opacity="0"/><stop offset=".5" stop-color="#a78bfa" stop-opacity=".95"/><stop offset="1" stop-color="#a78bfa" stop-opacity="0"/></linearGradient>
+      <rect x="0" y="0" width="680" height="220" fill="#ffffff" mask="url(#logoMask)"/>
+      <rect id="sheen" x="0" y="0" width="680" height="220" fill="url(#gSheen)" mask="url(#logoMask)" style="mix-blend-mode:normal"/>
+    </svg>
+    <div class="presents">presents</div>
+  </div>
+
+  <!-- 2. Title -->
+  <div id="sceneTitle" class="scene">
+    <svg viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="gWord" x1="0" x2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#d9ceff"/></linearGradient>
+        <linearGradient id="gPath" x1="0" x2="1"><stop offset="0" stop-color="#6d4aff"/><stop offset="1" stop-color="#c4b5fd"/></linearGradient>
+        <clipPath id="wordClip"><rect id="wordClipRect" x="0" y="300" width="0" height="360"/></clipPath>
+        <filter id="glow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="8"/></filter>
+      </defs>
+      <g transform="translate(960 560) skewX(-11)" clip-path="url(#wordClip)">
+        <text class="word" id="titleWord" x="0" y="0" text-anchor="middle" fill="url(#gWord)">WAYPOINT</text>
+      </g>
+      <path id="trackBase" d="" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="4" stroke-dasharray="3 14" stroke-linecap="round"/>
+      <path id="trackGlow" d="" fill="none" stroke="#8f6dff" stroke-width="14" opacity=".55" filter="url(#glow)"/>
+      <path id="trackDone" d="" fill="none" stroke="url(#gPath)" stroke-width="6" stroke-linecap="round"/>
+      <g id="nodes"></g>
+      <g id="botG"><rect x="-26" y="-26" width="52" height="52" rx="10" fill="#a78bfa" stroke="#1e1240" stroke-width="4"/><path d="M0 -20 L12 2 L-12 2 Z" fill="#1e1240" transform="translate(0 -2) scale(.75)"/></g>
+    </svg>
+    <div class="tag" id="titleTag">The VEX V5 autonomous simulator</div>
+  </div>
+
+  <!-- 3. Feature grid -->
+  <div id="sceneGrid" class="scene">
+    <div class="head" id="gridHead">Built for VEX V5 Override</div>
+    <div class="title" id="gridTitle">Dial in your <em>auton</em></div>
+    <div id="tiles"></div>
+  </div>
+
+  <!-- 4. End card -->
+  <div id="sceneEnd" class="scene">
+    <div class="mark"><div class="word" id="endWord"><em>WAYPOINT</em></div></div>
+    <div class="line" id="endLine">Simulate your auton. <span>Before you touch the robot.</span></div>
+    <div class="chips" id="endChips">
+      <div class="chip hot" id="endUrl">Free in your browser</div>
+      <div class="chip">LemLib 0.5.6</div>
+      <div class="chip">jerry.io paths</div>
+      <div class="chip">Open source</div>
+    </div>
+    <div class="by" id="endBy"><span>Made by</span><img src="../assets/invictus-52111a-light.svg" alt="Invictus 52111A"></div>
+  </div>
+
+  <div id="wipeB" class="band"></div>
+  <div id="wipeA" class="band"></div>
+  <div id="vignette"></div>
+</div>
+<script src="shots.js"></script>
+<script src="stage.js"></script>
+</body>
+</html>
