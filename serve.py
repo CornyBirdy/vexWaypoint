@@ -69,7 +69,7 @@ def main():
     except OSError as e:
         print("Could not listen on port %d: %s" % (port, e), flush=True)
         return 1
-    print("VEX Auton Sim serving %s" % ROOT, flush=True)
+    print("Waypoint serving %s" % ROOT, flush=True)
     print("Listening on http://127.0.0.1:%d/" % port, flush=True)
     try:
         httpd.serve_forever()

@@ -1,4 +1,4 @@
-# VEX Auton Sim
+# Waypoint
 
 <p>
 <picture>
@@ -8,7 +8,7 @@
 <br>Made by <b>Invictus 52111A</b>
 </p>
 
-A drivetrain-only autonomous simulator for the **VEX V5 Override** field.
+**Waypoint** is a drivetrain-only autonomous simulator for the **VEX V5 Override** field.
 It runs your **LemLib** auton code (C++ or JavaScript), follows **path.jerryio** files, and lets you scrub the result on a timeline.
 
 It includes a **path editor** ported from [path.jerryio](https://github.com/Jerrylum/path.jerryio), so you can draw and tune paths right on the field, and its Override field pictures. Because of that this project is licensed **GPL-3.0** (see `LICENSE` and `NOTICE.md`).
