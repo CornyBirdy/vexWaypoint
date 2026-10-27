@@ -1,6 +1,6 @@
 # Waypoint reveal video
 
-30 s. 16:9 master 1920x1080 @ 60 fps (YouTube) and 9:16 1080x1920 @ 30 fps (Instagram). Everything in it is the real app: `render.js` opens `index.html` in Chromium,
+~46 s. 16:9 master 1920x1080 @ 60 fps (YouTube) and 9:16 1080x1920 @ 30 fps (Instagram). Everything in it is the real app: `render.js` opens `index.html` in Chromium,
 drives it with real mouse events and steps its clock one frame at a time, so the footage is the actual
 simulator and every render is identical.
 

@@ -25,12 +25,12 @@ TAGS=(-colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv)
 ffmpeg -y -loglevel error -framerate 60 -i "$FH/%05d.png" -i "$OUT/score-normalised.wav" \
   -vf "$COLOR" -c:v libx264 -preset slow -profile:v high -level 4.2 -crf 14 -maxrate 24M -bufsize 48M \
   -g 120 -bf 2 -pix_fmt yuv420p "${TAGS[@]}" \
-  -c:a aac -b:a 320k -ar 48000 -t 30 -movflags +faststart "$OUT/waypoint-reveal-1080p60.mp4"
+  -c:a aac -b:a 320k -ar 48000 -t 46.25 -movflags +faststart "$OUT/waypoint-reveal-1080p60.mp4"
 
 # Instagram: 1080x1920 vertical (Reels / feed 9:16), 30 fps
 ffmpeg -y -loglevel error -framerate 30 -i "$FV/%05d.png" -i "$OUT/score-normalised.wav" \
   -vf "$COLOR" -c:v libx264 -preset slow -profile:v high -level 4.2 -crf 15 -maxrate 16M -bufsize 32M \
   -g 60 -bf 2 -pix_fmt yuv420p "${TAGS[@]}" \
-  -c:a aac -b:a 256k -ar 48000 -t 30 -movflags +faststart "$OUT/waypoint-reveal-1080x1920-instagram.mp4"
+  -c:a aac -b:a 256k -ar 48000 -t 46.25 -movflags +faststart "$OUT/waypoint-reveal-1080x1920-instagram.mp4"
 
 ls -lh "$OUT"/*.mp4
