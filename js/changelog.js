@@ -10,6 +10,14 @@
           "name": "Added",
           "items": [
             {
+              "text": "**Chassis panel**: map out the drivetrain. Choose how many wheels (2 to 4 per side) and whether each is **omni** or **traction**, front to back (click a wheel in the drawing to switch it, or use the lists), with the right side mirroring the left or set separately. Add a **forward** and / or **sideways tracking wheel** with its offset from the centre. It is drawn top-down on an inch grid with the robot size and wheel positions. A summary line shows what the chassis does on the floor.",
+              "sub": []
+            },
+            {
+              "text": "The chassis decides the errors: traction wheels grip more and slide less (less drift) but scrub more when turning, a traction wheel in the middle scrubs less than one at the ends, omni wheels vary more from run to run, and tracking wheels keep the odometry right when the drive wheels spin, skid or push on a wall (a sideways one also sees sliding).",
+              "sub": []
+            },
+            {
               "text": "**Real-life error: gyro drift and wheel slip.** The robot now has two poses: where it really is, and where its odometry thinks it is. The LemLib motion controllers (and `getPose()`) only see the second one, so the error shows up in the run the way it does on a real robot. It can be switched off in the new **Real-life error** panel.",
               "sub": [
                 "*Gyro:* a constant bias (drift in degrees per minute) that also wanders slowly, a turn-rate scale error (the sensor under- or over-reading rotation) and reading noise. Each run gets its own random draw.",
@@ -52,6 +60,10 @@
           "items": [
             {
               "text": "**Lift / claw waits no longer add time.** A loop such as `while (liftPIDEnabled != 1) { pros::delay(20); }` counts as already finished instead of being carried on after 500 ms. The *Lift / claw wait* setting now defaults to 0 (a saved 500 is reset to 0); set it above 0 to make every such wait cost that many ms. Loops that do other work, and waits on the drivetrain, behave as before.",
+              "sub": []
+            },
+            {
+              "text": "The Real-life error numbers are **no longer adjustable**: it is a single on / off tickbox, and the sizes come from the chassis. **Every Run now gives the robot a new random draw**, so results change from run to run (re-runs after a setting change keep the same draw). The seed field and *New random seed* button are gone.",
               "sub": []
             },
             {

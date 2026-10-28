@@ -2,7 +2,7 @@
 'use strict';
 const path = require('path');
 const assert = require('assert');
-for (const f of ['lemlib', 'paths', 'translate', 'sim']) require(path.join('..', 'js', f + '.js'));
+for (const f of ['lemlib', 'chassis', 'paths', 'translate', 'sim']) require(path.join('..', 'js', f + '.js'));
 const V = globalThis.VSim;
 
 const ROBOT = { wheelDiameter: 3.25, rpm: 450, speedPct: 90, trackWidth: 12, length: 15, width: 15, responseMs: 80 };
@@ -563,6 +563,55 @@ const angDiff = (a, b) => Math.abs(normDeg(a - b));
     assert(rel.length >= 3 && rel[0].title === 'Unreleased' && rel[0].sections.some((x) => x.name === 'Added' && x.items.length), 'changelog parses');
     assert(rel.every((r) => r.sections.every((x) => x.items.every((i) => i.text.length > 3))), 'every entry has text');
     console.log('ok changelog data matches CHANGELOG.md');
+  }
+
+  // --- chassis: wheel types and tracking wheels decide how the robot behaves on the floor
+  {
+    const allOmni = { left: ['omni', 'omni'], mirror: true };
+    const allTraction = { left: ['traction', 'traction'], mirror: true };
+    const centreTraction = { left: ['omni', 'traction', 'omni'], mirror: true };
+    const endTraction = { left: ['traction', 'omni', 'traction'], mirror: true };
+    const dOmni = V.deriveChassis(allOmni, ROBOT);
+    const dTrac = V.deriveChassis(allTraction, ROBOT);
+    assert.strictEqual(dOmni.wheels, 4);
+    assert(dTrac.grip > dOmni.grip && dTrac.latGrip > dOmni.latGrip, 'traction wheels grip more');
+    assert(dTrac.scrub > dOmni.scrub && dTrac.scrub < 1.4, 'but scrub more when turning: ' + dTrac.scrub);
+    assert(V.deriveChassis(endTraction, ROBOT).scrub > V.deriveChassis(centreTraction, ROBOT).scrub, 'a traction wheel in the centre scrubs less than one at the ends');
+    assert(dOmni.spread > dTrac.spread, 'omni grip is less consistent');
+    const lay = V.chassisLayout({ left: ['omni', 'traction', 'omni'], mirror: true }, ROBOT);
+    assert.strictEqual(lay.length, 6);
+    assert(lay[0].y > lay[1].y && lay[1].y > lay[2].y && lay[0].x < 0 && lay[3].x > 0, 'wheels go front to back, left then right');
+    assert.deepStrictEqual(V.sanitizeChassis({ left: ['bogus'], tracking: { vertical: { on: 1, offset: 99 } } }).left, V.DEFAULT_CHASSIS.left, 'junk falls back to the default chassis');
+    assert.strictEqual(V.sanitizeChassis({ left: ['omni'], mirror: false, right: ['traction', 'omni'] }).right.length, 2, 'the right side can differ');
+    assert(/drive wheels/.test(V.describeChassis(allOmni, ROBOT)));
+
+    const rc = (chassis, extra) => ({ enabled: true, seed: 4, chassis, ...extra });
+    // sideways slide in a fast curve: omni wheels slide, traction wheels hold
+    const curve = 'chassis.moveToPose(36, 36, 90, 4000, {.lead = 0.5}, false);';
+    const omniRun = await run(curve, { realism: rc(allOmni) });
+    const tracRun = await run(curve, { realism: rc(allTraction) });
+    assert(omniRun.res.realism.maxSlide > tracRun.res.realism.maxSlide, `omni slides more: ${omniRun.res.realism.maxSlide} vs ${tracRun.res.realism.maxSlide}`);
+
+    // tracking wheels: the odometry stops counting wheelspin (forward wheel) and sees sliding (sideways wheel)
+    const vert = { ...allOmni, tracking: { vertical: { on: true, offset: 3 }, horizontal: { on: false, offset: 0 } } };
+    const both = { ...allOmni, tracking: { vertical: { on: true, offset: 3 }, horizontal: { on: true, offset: -2 } } };
+    const spin = { grip: 0.3, latGrip: 0 };
+    const spinDrive = await run(curve, { realism: rc(allOmni, spin) });
+    const spinTrack = await run(curve, { realism: rc(vert, spin) });
+    assert(spinTrack.res.realism.maxPosErr < spinDrive.res.realism.maxPosErr * 0.5, `a forward tracking wheel ignores wheelspin: ${spinTrack.res.realism.maxPosErr} vs ${spinDrive.res.realism.maxPosErr}`);
+    const slide = { grip: 0, latGrip: 0.05 };
+    const slideV = await run(curve, { realism: rc(vert, slide) });
+    const slideVH = await run(curve, { realism: rc(both, slide) });
+    assert(slideV.res.realism.maxSlide > 2, 'the robot slides: ' + slideV.res.realism.maxSlide);
+    assert(slideVH.res.realism.maxPosErr < slideV.res.realism.maxPosErr * 0.5, `a sideways tracking wheel sees the slide: ${slideVH.res.realism.maxPosErr} vs ${slideV.res.realism.maxPosErr}`);
+    // against a wall the drive wheels keep counting; a tracking wheel does not
+    const wallRun = 'chassis.moveToPoint(0, 100, 3000, {}, false);';
+    const wallDrive = await run(wallRun, { realism: rc(allOmni) });
+    const wallTrack = await run(wallRun, { realism: rc(vert) });
+    assert.strictEqual(wallDrive.res.motions[0].reason, 'settled', 'drive encoders: thinks it arrived');
+    assert.strictEqual(wallTrack.res.motions[0].reason, 'timeout', 'tracking wheel: knows it is stuck against the wall');
+    assert(wallTrack.res.realism.maxPosErr < 5, 'odometry stays right: ' + wallTrack.res.realism.maxPosErr);
+    console.log('ok chassis: wheel types, tracking wheels');
   }
 
   console.log('\nALL ENGINE TESTS PASSED');

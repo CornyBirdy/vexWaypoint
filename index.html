@@ -107,13 +107,17 @@
     </details>
 
     <details class="sec" open>
-      <summary>Real-life error <span class="aside" id="realAside">gyro drift + wheel slip</span></summary>
-      <label class="check realtoggle"><input type="checkbox" id="realOn"> simulate gyro drift and wheel slip</label>
-      <div class="props" id="formReal"></div>
-      <div class="actions">
-        <button id="btnSeed" class="btn" type="button" title="Pick a different random draw of gyro bias, grip and noise">New random seed</button>
-      </div>
-      <p class="note">The robot gets its own random draw (set by the seed, so a run repeats exactly): its gyro has a bias, a turn-rate error and noise, and its wheels spin or skid when the motors ask for more than the floor grips. The odometry only sees the wheels and the gyro, so it slowly disagrees with where the robot really is. <code>setPose()</code> resets it, like a wall reset. Set a value to 0 to switch that effect off.</p>
+      <summary>Chassis <span class="aside">wheels + tracking wheels</span></summary>
+      <canvas id="chassisCanvas" class="chassiscv" aria-label="Top-down drawing of the chassis on an inch grid"></canvas>
+      <div id="chassisControls" class="chassisctl"></div>
+      <p class="note" id="chassisInfo"></p>
+      <p class="note">Front of the robot is up. Click a wheel in the drawing to switch it between omni and traction. Wheel size is the wheel diameter above; the robot length and track width set where the wheels sit.</p>
+    </details>
+
+    <details class="sec" open>
+      <summary>Real-life error <span class="aside">gyro drift + wheel slip</span></summary>
+      <label class="check realtoggle"><input type="checkbox" id="realOn"> simulate real-life error</label>
+      <p class="note">On: every Run gives the robot a new random draw (its gyro has a bias, a turn-rate error and noise; the floor grip changes a little), so results vary from run to run like on a real field. How big the errors are comes from the Chassis above: traction wheels grip and slide less, tracking wheels keep the odometry right when the drive wheels slip. Changing a setting re-runs with the same draw. The odometry only sees the wheels and the gyro, so it slowly disagrees with where the robot really is. <code>setPose()</code> resets it, like a wall reset. Off: a perfect robot.</p>
     </details>
 
     <details class="sec" open>
@@ -202,6 +206,7 @@
 <script src="js/translate.js"></script>
 <script src="js/editor.js"></script>
 <script src="js/export.js"></script>
+<script src="js/chassis.js"></script>
 <script src="js/sim.js"></script>
 <script src="js/render.js"></script>
 <script src="js/examples.js"></script>

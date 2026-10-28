@@ -11,7 +11,8 @@
     start: { x: -60, y: -60, h: 0 },
     robot: { wheelDiameter: 3.25, rpm: 450, speedPct: 90, trackWidth: 12, length: 15, width: 15, responseMs: 80 },
     cfg: { horizontalDrift: 2, pathMode: 'field', mechanismWait: 0, startFromCode: true },
-    real: { ...V.REAL_DEFAULTS },
+    real: { enabled: true },
+    chassis: JSON.parse(JSON.stringify(V.DEFAULT_CHASSIS)),
     lateral: { ...V.DEFAULT_LATERAL },
     angular: { ...V.DEFAULT_ANGULAR },
     lang: 'cpp',
@@ -46,16 +47,6 @@
       ['robot.responseMs', 'Motor response (ms)', 5, 1, 400],
       ['cfg.horizontalDrift', 'Horizontal drift', 0.5, 0, 50],
       ['cfg.mechanismWait', 'Lift / claw wait (ms, 0 = none)', 50, 0, 5000],
-    ],
-    formReal: [
-      ['real.seed', 'Random seed', 1, 0, 999999],
-      ['real.gyroDrift', 'Gyro drift (&deg;/min, 1&sigma;)', 0.05, 0, 10],
-      ['real.gyroScale', 'Gyro turn error (%, 1&sigma;)', 0.1, 0, 5],
-      ['real.gyroNoise', 'Gyro noise (&deg;, 1&sigma;)', 0.01, 0, 2],
-      ['real.grip', 'Wheel grip, drive (&mu;)', 0.05, 0, 3],
-      ['real.latGrip', 'Wheel grip, sideways (&mu;)', 0.05, 0, 3],
-      ['real.gripVar', 'Grip change per run (%)', 1, 0, 40],
-      ['real.scrub', 'Turn scrub (x track width)', 0.01, 1, 2],
     ],
     formLat: controllerFields('lateral'),
     formAng: controllerFields('angular'),
@@ -129,7 +120,7 @@
     $('pathModeNote').innerHTML = PATH_MODE_NOTES[S.cfg.pathMode];
     $('realOn').checked = !!S.real.enabled;
     $('startFromCode').checked = !!S.cfg.startFromCode;
-    $('formReal').classList.toggle('off', !S.real.enabled);
+    renderChassisUi();
     $('lang').value = S.lang;
     $('autonLimit').value = String(S.autonLimit);
     $('fieldStyle').value = S.fieldStyle;
@@ -293,6 +284,8 @@
   let drawQueued = false;
   let trail = [];
   let compiled = null;
+  let runSeed = null; // the random draw of the current run (see runNow)
+  let chassisView = null;
   let codeStart = null; // {x, y, h} when the code's own setPose() placed the robot on the last run
   const round2 = (v) => Math.round(v * 100) / 100;
 
@@ -314,6 +307,8 @@
       return;
     }
     running = true;
+    // pressing Run (or Ctrl+Enter) gives the robot a new random draw; re-runs after a settings change keep it
+    if (opts.autoplay || runSeed == null) runSeed = 1 + Math.floor(Math.random() * 999999);
     $('btnRun').classList.add('busy');
     try {
       const c = currentCompiled();
@@ -328,7 +323,7 @@
         js: c.js,
         robot: S.robot,
         start: S.start,
-        realism: S.real,
+        realism: { enabled: S.real.enabled, seed: runSeed, chassis: S.chassis },
         startFromSetPose: S.cfg.startFromCode,
         cfg: { lateral: S.lateral, angular: S.angular, trackWidth: S.robot.trackWidth, horizontalDrift: S.cfg.horizontalDrift, pathMode: S.cfg.pathMode },
         paths: paths.map((p) => ({
@@ -379,6 +374,7 @@
   let debounce = 0;
   function settingsChanged() {
     updateTopSpeed();
+    drawChassis();
     save();
     requestDraw();
     if (!$('autoRun').checked) return;
@@ -680,6 +676,9 @@
       S = merge(clone(DEFAULTS), saved.S);
       // the "drawn" field was removed; settings saved with it fall back to the match field
       if (S.fieldStyle !== 'photo-skills') S.fieldStyle = 'photo-match';
+      // the error sizes are no longer settings (they come from the chassis); only on / off is kept
+      S.real = { enabled: S.real.enabled !== false };
+      S.chassis = V.sanitizeChassis(S.chassis);
       // 500 ms was the old default for the lift / claw wait; the new default is no wait at all
       if (saved.S.cfg && saved.S.cfg.mechanismWait === 500) S.cfg.mechanismWait = 0;
       pathFiles = Array.isArray(saved.files) ? saved.files : [];
@@ -701,6 +700,7 @@
     else if (!saved) loadExamplePath();
     renderer.onImageLoad = requestDraw;
     window.addEventListener('vsim-theme', () => {
+      drawChassis();
       requestDraw();
       V.PathTool.drawGraph();
     });
@@ -803,6 +803,16 @@
       requestDraw();
     });
     $('speed').addEventListener('change', requestDraw);
+    chassisView = new V.ChassisView($('chassisCanvas'));
+    chassisView.onToggle = (side, i) => {
+      const list = S.chassis[side];
+      list[i] = list[i] === 'omni' ? 'traction' : 'omni';
+      if (S.chassis.mirror) S.chassis[side === 'left' ? 'right' : 'left'] = list.slice();
+      renderChassisUi();
+      settingsChanged();
+    };
+    new ResizeObserver(drawChassis).observe($('chassisCanvas'));
+    renderChassisUi();
     initChangelog();
     $('startFromCode').addEventListener('change', (e) => {
       S.cfg.startFromCode = e.target.checked;
@@ -811,12 +821,6 @@
     });
     $('realOn').addEventListener('change', (e) => {
       S.real.enabled = e.target.checked;
-      $('formReal').classList.toggle('off', !S.real.enabled);
-      settingsChanged();
-    });
-    $('btnSeed').addEventListener('click', () => {
-      S.real.seed = 1 + Math.floor(Math.random() * 999999);
-      pushSettingsToUi();
       settingsChanged();
     });
     ['optTrail', 'optPaths', 'optAxes', 'optAim', 'optOdom'].forEach((id) => $(id).addEventListener('change', requestDraw));
@@ -849,6 +853,84 @@
     bindCanvas();
     const splashShown = Date.now();
     runNow({ autoplay: true }).then(() => hideSplash(splashShown));
+  }
+
+  // ------------------------------------------------------------------ chassis
+
+  function drawChassis() {
+    if (chassisView) chassisView.draw({ robot: S.robot, chassis: S.chassis });
+  }
+
+  /** wheel rows, tracking wheel boxes and the summary line under the drawing */
+  function renderChassisUi() {
+    const host = $('chassisControls');
+    if (!host) return;
+    S.chassis = V.sanitizeChassis(S.chassis);
+    const c = S.chassis;
+    host.innerHTML = '';
+    const change = () => {
+      S.chassis = V.sanitizeChassis(S.chassis);
+      renderChassisUi();
+      settingsChanged();
+    };
+    const opts = (cur) => Object.keys(V.WHEEL_TYPES).map((k) => `<option value="${k}"${k === cur ? ' selected' : ''}>${V.WHEEL_TYPES[k].label}</option>`).join('');
+    const row = (side, label) => {
+      const list = c[side];
+      const div = document.createElement('div');
+      div.className = 'wrow';
+      div.innerHTML = `<span>${label}</span>` + list.map((t, i) => `<select data-i="${i}" aria-label="${label} wheel ${i + 1}">${opts(t)}</select>`).join('') +
+        `<button class="btn" type="button" data-act="del" title="Remove the last wheel"${list.length <= 2 ? ' disabled' : ''}>&minus;</button>` +
+        `<button class="btn" type="button" data-act="add" title="Add a wheel at the back"${list.length >= V.MAX_WHEELS_PER_SIDE ? ' disabled' : ''}>+</button>`;
+      div.querySelectorAll('select').forEach((sel) => sel.addEventListener('change', () => {
+        S.chassis[side][+sel.dataset.i] = sel.value;
+        if (S.chassis.mirror && side === 'left') S.chassis.right = S.chassis.left.slice();
+        change();
+      }));
+      div.querySelector('[data-act=add]').addEventListener('click', () => {
+        S.chassis[side].push(S.chassis[side][S.chassis[side].length - 1]);
+        if (S.chassis.mirror) S.chassis.right = S.chassis.left.slice();
+        change();
+      });
+      div.querySelector('[data-act=del]').addEventListener('click', () => {
+        S.chassis[side].pop();
+        if (S.chassis.mirror) S.chassis.right = S.chassis.left.slice();
+        change();
+      });
+      host.appendChild(div);
+    };
+    row('left', c.mirror ? 'Wheels, each side' : 'Left wheels');
+    if (!c.mirror) row('right', 'Right wheels');
+    const mir = document.createElement('label');
+    mir.className = 'check';
+    mir.innerHTML = `<input type="checkbox"${c.mirror ? ' checked' : ''}> right side is the same as the left`;
+    mir.querySelector('input').addEventListener('change', (e) => {
+      S.chassis.mirror = e.target.checked;
+      if (S.chassis.mirror) S.chassis.right = S.chassis.left.slice();
+      change();
+    });
+    host.appendChild(mir);
+    [['vertical', 'Forward tracking wheel', 'sideways offset from the centre (in, + = right)'], ['horizontal', 'Sideways tracking wheel', 'forward offset from the centre (in, + = ahead)']].forEach(([k, label, hint]) => {
+      const t = c.tracking[k];
+      const div = document.createElement('div');
+      div.className = 'trow';
+      div.innerHTML = `<label class="check"><input type="checkbox"${t.on ? ' checked' : ''}> ${label}</label>` +
+        `<input type="number" step="0.5" min="-12" max="12" value="${t.offset}" title="${hint}" aria-label="${label}: ${hint}"${t.on ? '' : ' disabled'}>`;
+      div.querySelector('input[type=checkbox]').addEventListener('change', (e) => {
+        S.chassis.tracking[k].on = e.target.checked;
+        change();
+      });
+      div.querySelector('input[type=number]').addEventListener('input', (e) => {
+        const n = parseFloat(e.target.value);
+        if (!isFinite(n)) return;
+        S.chassis.tracking[k].offset = n;
+        S.chassis = V.sanitizeChassis(S.chassis);
+        $('chassisInfo').textContent = V.describeChassis(S.chassis, S.robot);
+        settingsChanged();
+      });
+      host.appendChild(div);
+    });
+    $('chassisInfo').textContent = V.describeChassis(S.chassis, S.robot);
+    drawChassis();
   }
 
   // ------------------------------------------------------------------ changelog

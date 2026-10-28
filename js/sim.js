@@ -78,34 +78,45 @@
     };
   }
 
-  /** what the UI calls the "realism" settings */
+  /**
+   * The error model. The gyro numbers are fixed (typical V5 inertial sensor); everything about the floor
+   * and the odometry comes from the chassis (js/chassis.js). Any of the numbers can still be passed in the
+   * realism object to override what the chassis says (the tests do that).
+   */
   const REAL_DEFAULTS = {
-    enabled: true,
     seed: 1,
     gyroDrift: 0.3, // deg / min, 1 sigma of the sensor's bias (changes from run to run)
     gyroScale: 0.5, // %, 1 sigma of the turn-rate scale error
     gyroNoise: 0.05, // deg, 1 sigma of the reading noise
+    trackScale: 0.3, // %, 1 sigma of a tracking wheel's size error (changes from run to run)
     grip: 0.8, // friction coefficient driving forwards / braking (0 = wheels never slip)
     gripVar: 5, // %, 1 sigma of how much the grip changes from run to run
     latGrip: 0.6, // friction coefficient sideways (0 = never slides)
     scrub: 1.05, // effective track width / measured track width
   };
+  const NO_TRACKING = { vertical: { on: false, offset: 0 }, horizontal: { on: false, offset: 0 } };
 
-  /** turns the UI settings into the numbers the physics uses; null = ideal robot */
-  function resolveReal(o) {
+  /** turns the settings into the numbers the physics uses; null = ideal robot */
+  function resolveReal(o, p) {
     if (!o || !o.enabled) return null;
-    const n = (k) => (isFinite(Number(o[k])) && o[k] !== null && o[k] !== '' ? Number(o[k]) : REAL_DEFAULTS[k]);
+    const d = NS.deriveChassis ? NS.deriveChassis(o.chassis, p || {}) : null;
+    const dflt = (k) => (d && k === 'gripVar' ? d.spread : d && d[k] != null ? d[k] : REAL_DEFAULTS[k]);
+    const n = (k) => (isFinite(Number(o[k])) && o[k] !== null && o[k] !== '' ? Number(o[k]) : dflt(k));
     const rng = makeRng(n('seed'));
     const gripMul = clamp(1 + (n('gripVar') / 100) * rng.randn(), 0.5, 1.5);
     const grip = Math.max(0, n('grip'));
     const latGrip = Math.max(0, n('latGrip'));
     const drift = Math.max(0, n('gyroDrift'));
+    const tracking = o.tracking || (d && d.tracking) || NO_TRACKING;
     return {
       rng,
       seed: n('seed'),
       // drawn once per run, always in this order
       biasDegPerS: (drift / 60) * rng.randn(),
       scale: (Math.max(0, n('gyroScale')) / 100) * rng.randn(),
+      trkScaleV: (Math.max(0, n('trackScale')) / 100) * rng.randn(),
+      trkScaleH: (Math.max(0, n('trackScale')) / 100) * rng.randn(),
+      tracking,
       walkDegPerSqrtS: (drift / 60) * 0.05, // the bias wanders a little during the run
       noiseRad: Math.max(0, n('gyroNoise')) * D2R,
       longLim: grip > 0 ? grip * gripMul * G : Infinity, // max change of ground speed, in / s^2
@@ -138,7 +149,7 @@
       this.cmdL = 0;
       this.cmdR = 0;
       this.touching = false;
-      this.real = resolveReal(realism);
+      this.real = resolveReal(realism, p);
       // ground speed under each side of the drivetrain, and sideways speed of the body (in / s)
       this.uL = 0;
       this.uR = 0;
@@ -194,6 +205,8 @@
 
         // --- wheel slip. The wheels follow the motors; the ground only follows the wheels as far as
         // friction allows (wheelspin when accelerating too hard, a skid when braking too hard).
+        const x0 = this.x;
+        const y0 = this.y;
         const lim = re.longLim * dt;
         this.uL += clamp(this.vL - this.uL, -lim, lim);
         this.uR += clamp(this.vR - this.uR, -lim, lim);
@@ -218,12 +231,28 @@
 
         // --- sensors: the gyro sees the real rotation (scale error + drift + noise), the encoders see
         // how far the wheels turned, not how far the robot moved
-        this.gyro += (w * (1 + re.scale) + this.gyroBias) * dt;
+        const dth = (w * (1 + re.scale) + this.gyroBias) * dt; // what the gyro adds this step
+        this.gyro += dth;
         const shNew = this.gyro + this.gyroNoise + this.shOff;
-        const dF = ((this.vL + this.vR) / 2) * dt;
         const shm = (this.sh + shNew) / 2;
-        this.sx += Math.sin(shm) * dF;
-        this.sy += Math.cos(shm) * dF;
+        // forward travel: a free-rolling tracking wheel measures how far the robot really went (also when
+        // it is held against a wall); without one the drive encoders are used, and they count wheelspin.
+        // A wheel off the robot's centre also sees the robot turn, which the code removes using the gyro.
+        const trk = re.tracking;
+        const dx = this.x - x0;
+        const dy = this.y - y0;
+        let dF = ((this.vL + this.vR) / 2) * dt;
+        let dS = 0;
+        if (trk.vertical.on) {
+          const real = dx * Math.sin(hm) + dy * Math.cos(hm);
+          dF = (real - dh * trk.vertical.offset) * (1 + re.trkScaleV) + dth * trk.vertical.offset;
+        }
+        if (trk.horizontal.on) {
+          const real = dx * Math.cos(hm) - dy * Math.sin(hm);
+          dS = (real + dh * trk.horizontal.offset) * (1 + re.trkScaleH) - dth * trk.horizontal.offset;
+        }
+        this.sx += Math.sin(shm) * dF + Math.cos(shm) * dS;
+        this.sy += Math.cos(shm) * dF - Math.sin(shm) * dS;
         this.sh = shNew;
       }
     }
