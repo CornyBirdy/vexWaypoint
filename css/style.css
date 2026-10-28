@@ -24,8 +24,35 @@ code, textarea, .log, .readout td, .props input, .aside, .path .id {
   -webkit-mask-image: var(--fade); mask-image: var(--fade);
   -webkit-mask-composite: source-in; mask-composite: intersect;
 }
+.splash[hidden] { display: none; }
 .splash.out { opacity: 0; pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .splash { transition: none; } }
+
+/* changelog dialog */
+.btn .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-left: var(--s-2); }
+.btn .dot[hidden] { display: none; }
+.changelog {
+  width: min(680px, calc(100vw - 24px)); max-height: min(780px, calc(100vh - 32px)); padding: 0; overflow: hidden;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--hairline); border-radius: var(--r-lg);
+}
+.changelog[open] { display: flex; flex-direction: column; }
+.changelog::backdrop { background: color-mix(in srgb, var(--splash-bg), transparent 35%); }
+.changelog > header { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--hairline); }
+.changelog h2 { margin: 0; flex: 1; font-size: 15px; font-weight: 600; }
+.changelog .body { overflow: auto; padding: var(--s-3) var(--s-4) var(--s-5); display: grid; grid-auto-rows: max-content; align-content: start; gap: var(--s-4); }
+.cl-rel { border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface-raised); overflow: hidden; }
+.cl-rel > h3 { display: flex; align-items: center; gap: var(--s-2); margin: 0; padding: var(--s-2) var(--s-3); font-size: 13px; font-weight: 600; color: var(--ink); border-bottom: 1px solid var(--hairline); }
+.cl-tag { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--accent); color: var(--on-accent); }
+.cl-sec { padding: var(--s-2) var(--s-3) var(--s-3); }
+.cl-sec h4 { margin: var(--s-2) 0 var(--s-1); font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.cl-sec h4.added { color: var(--success); }
+.cl-sec h4.changed { color: var(--accent-text); }
+.cl-sec h4.fixed { color: var(--warning); }
+.cl-sec h4.removed { color: var(--danger); }
+.cl-sec ul { margin: 0; padding-left: 18px; display: grid; gap: var(--s-2); }
+.cl-sec ul ul { margin-top: var(--s-1); gap: var(--s-1); color: var(--ink-muted); }
+.cl-sec li { line-height: 1.45; }
+.cl-sec code { font-size: 12px; background: var(--surface); padding: 0 4px; border-radius: var(--r-xs); }
 
 /* top bar */
 .bar {

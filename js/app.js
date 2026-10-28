@@ -803,6 +803,7 @@
       requestDraw();
     });
     $('speed').addEventListener('change', requestDraw);
+    initChangelog();
     $('startFromCode').addEventListener('change', (e) => {
       S.cfg.startFromCode = e.target.checked;
       if (!e.target.checked) $('startNote').hidden = true;
@@ -848,6 +849,68 @@
     bindCanvas();
     const splashShown = Date.now();
     runNow({ autoplay: true }).then(() => hideSplash(splashShown));
+  }
+
+  // ------------------------------------------------------------------ changelog
+
+  /** `**bold**`, `*italic*` and `code` from CHANGELOG.md; everything else is escaped text */
+  function inlineMd(text) {
+    return esc(text)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+      .replace(/\*([^*]+)\*/g, '<i>$1</i>');
+  }
+
+  function renderChangelog() {
+    const body = $('changelogBody');
+    body.innerHTML = '';
+    (V.CHANGELOG || []).forEach((rel, i) => {
+      const card = document.createElement('section');
+      card.className = 'cl-rel';
+      const title = rel.title === 'Unreleased' ? 'Latest changes' : rel.title;
+      card.innerHTML = `<h3>${esc(title)}${i === 0 ? '<span class="cl-tag">New</span>' : ''}</h3>`;
+      rel.sections.forEach((sec) => {
+        const div = document.createElement('div');
+        div.className = 'cl-sec';
+        const items = sec.items
+          .map((it) => `<li>${inlineMd(it.text)}${it.sub.length ? '<ul>' + it.sub.map((t) => `<li>${inlineMd(t)}</li>`).join('') + '</ul>' : ''}</li>`)
+          .join('');
+        div.innerHTML = (sec.name ? `<h4 class="${esc(sec.name.toLowerCase())}">${esc(sec.name)}</h4>` : '') + `<ul>${items}</ul>`;
+        card.appendChild(div);
+      });
+      body.appendChild(card);
+    });
+  }
+
+  /** a dot on the button until the newest entry has been opened */
+  function changelogSignature() {
+    const log = V.CHANGELOG || [];
+    return log.length ? `${log[0].title}:${log[0].sections.reduce((n, s) => n + s.items.length, 0)}` : '';
+  }
+
+  function initChangelog() {
+    const dlg = $('changelog');
+    if (!dlg || typeof dlg.showModal !== 'function') {
+      $('btnChangelog').hidden = true;
+      return;
+    }
+    renderChangelog();
+    const seen = () => {
+      try { return localStorage.getItem('waypointChangelogSeen'); } catch (e) { return null; }
+    };
+    $('changelogDot').hidden = seen() === changelogSignature();
+    $('btnChangelog').addEventListener('click', () => {
+      dlg.showModal();
+      $('changelogBody').scrollTop = 0;
+      $('changelogDot').hidden = true;
+      try { localStorage.setItem('waypointChangelogSeen', changelogSignature()); } catch (e) { /* storage blocked */ }
+    });
+    $('changelogClose').addEventListener('click', () => dlg.close());
+    // a click on the dimmed area (the dialog element itself, outside its box) closes it
+    dlg.addEventListener('click', (e) => {
+      const r = dlg.getBoundingClientRect();
+      if (e.target === dlg && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) dlg.close();
+    });
   }
 
   /** fade the logo splash out (if it is showing) once the first run is ready, but not before ~1 s; a click skips it */

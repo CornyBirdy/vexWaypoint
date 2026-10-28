@@ -553,6 +553,18 @@ const angDiff = (a, b) => Math.abs(normDeg(a - b));
     console.log('ok lift waits add no time by default');
   }
 
+  // --- the in-app changelog is generated from CHANGELOG.md (node tools/make-changelog.js)
+  {
+    const fs = require('fs');
+    const { render, parse } = require(path.join('..', 'tools', 'make-changelog.js'));
+    const md = fs.readFileSync(path.join(__dirname, '..', 'CHANGELOG.md'), 'utf8');
+    assert.strictEqual(fs.readFileSync(path.join(__dirname, '..', 'js', 'changelog.js'), 'utf8'), render(md), 'js/changelog.js is out of date: run node tools/make-changelog.js');
+    const rel = parse(md);
+    assert(rel.length >= 3 && rel[0].title === 'Unreleased' && rel[0].sections.some((x) => x.name === 'Added' && x.items.length), 'changelog parses');
+    assert(rel.every((r) => r.sections.every((x) => x.items.every((i) => i.text.length > 3))), 'every entry has text');
+    console.log('ok changelog data matches CHANGELOG.md');
+  }
+
   console.log('\nALL ENGINE TESTS PASSED');
 })().catch((e) => {
   console.error('FAILED', e);

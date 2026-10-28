@@ -102,13 +102,13 @@ It is a small translator, **not a C++ compiler**: classes, templates and pointer
 
 ## Changes
 
-See [`CHANGELOG.md`](CHANGELOG.md).
+See [`CHANGELOG.md`](CHANGELOG.md), or press **Changelog** in the app. After editing `CHANGELOG.md` run `node tools/make-changelog.js` to refresh the in-app copy (`js/changelog.js`); `node tests/engine.test.js` fails if it is out of date.
 
 ## Files
 
 ```
 index.html, css/style.css       the page
-CHANGELOG.md                    what changed, newest first
+CHANGELOG.md                    what changed, newest first (js/changelog.js is the in-app copy)
 css/tokens.css                  colours, radii, spacing, fonts (dark / light, accent block)
 js/theme.js                     Auto / Light / Dark switch
 js/lemlib.js                    LemLib controllers + chassis (motions)
@@ -126,6 +126,7 @@ rack.json, run-sim.bat, setup.bat, start.bat, serve.py, serve.ps1
 tests/engine.test.js            node tests/engine.test.js
 tests/editor.test.js            node tests/editor.test.js
 tools/make-examples.js          regenerates examples/ and js/examples.js
+tools/make-changelog.js         regenerates js/changelog.js from CHANGELOG.md
 ```
 
 The **Theme** button cycles Auto (follows your system), Light and Dark. Settings, code and loaded path files are remembered in your browser (local storage).

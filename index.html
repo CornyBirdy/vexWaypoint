@@ -28,6 +28,7 @@
   <h1>Waypoint</h1>
   <span class="grow"></span>
   <label class="check"><input type="checkbox" id="autoRun" checked> re-run on change</label>
+  <button id="btnChangelog" class="btn" type="button" title="What changed in each update">Changelog<span class="dot" id="changelogDot" hidden></span></button>
   <button id="btnTheme" class="btn" type="button" title="Colour theme: Auto follows your system" aria-label="Colour theme">Theme: Auto</button>
   <button id="btnExample" class="btn" type="button">Load example</button>
   <button id="btnRun" class="btn primary" type="button" title="Ctrl+Enter">Run</button>
@@ -182,6 +183,14 @@
   </aside>
 </main>
 
+<dialog id="changelog" class="changelog" aria-labelledby="changelogTitle">
+  <header>
+    <h2 id="changelogTitle">Changelog</h2>
+    <button id="changelogClose" class="btn" type="button" aria-label="Close">Close</button>
+  </header>
+  <div id="changelogBody" class="body"></div>
+</dialog>
+
 <footer class="credit">
   <span>Made by</span>
   <img class="on-dark" src="assets/invictus-52111a-light.svg" alt="Invictus 52111A" height="22">
@@ -196,6 +205,7 @@
 <script src="js/sim.js"></script>
 <script src="js/render.js"></script>
 <script src="js/examples.js"></script>
+<script src="js/changelog.js"></script>
 <script src="js/pathtool.js"></script>
 <script src="js/app.js"></script>
 </body>

@@ -6,15 +6,6 @@ grouped by date.
 
 ## Unreleased
 
-### Removed
-- The "drawn" field picture. Only the match and skills pictures remain (a saved "drawn" setting becomes match).
-
-### Fixed
-- Switching the field picture between match and skills could show the "drawn" field for a few seconds while
-  the picture loaded. Both pictures now load at start-up, and the old one stays up until the new one is ready.
-- `chassis.setPose(lemlib::Pose(...))`, `setPose(pose)` and `setPose({x, y, theta})` crashed the run or gave
-  `NaN`; the radians flag of `setPose(x, y, rad, true)` was ignored.
-
 ### Added
 - **Real-life error: gyro drift and wheel slip.** The robot now has two poses: where it really is, and where
   its odometry thinks it is. The LemLib motion controllers (and `getPose()`) only see the second one, so the
@@ -45,7 +36,8 @@ grouped by date.
   `setPose(pose)`. `Pose p{x, y, theta};` declarations are understood. `getPose(radians, standardPosition)` works.
 - The **Waypoint logo**: a banner at the top of the README, a start-up splash (shown once per browser session,
   click to skip) and a link-preview image.
-- This changelog.
+- This changelog, also shown in the app: the **Changelog** button in the top bar opens it (with a dot until you
+  have seen the newest entries).
 
 ### Changed
 - **Lift / claw waits no longer add time.** A loop such as `while (liftPIDEnabled != 1) { pros::delay(20); }`
@@ -56,6 +48,15 @@ grouped by date.
   versions. Untick *simulate gyro drift and wheel slip* (or set every value to 0) to get the old, perfect
   robot back; with everything off the output is identical to before.
 - A `follow()` path in **Shifted to the robot** mode now starts at where the odometry says the robot is.
+
+### Removed
+- The "drawn" field picture. Only the match and skills pictures remain (a saved "drawn" setting becomes match).
+
+### Fixed
+- Switching the field picture between match and skills could show the "drawn" field for a few seconds while
+  the picture loaded. Both pictures now load at start-up, and the old one stays up until the new one is ready.
+- `chassis.setPose(lemlib::Pose(...))`, `setPose(pose)` and `setPose({x, y, theta})` crashed the run or gave
+  `NaN`; the radians flag of `setPose(x, y, rad, true)` was ignored.
 
 ## 2026-10-27
 - Renamed the app to **Waypoint**; added the violet app icon and favicon.
