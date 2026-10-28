@@ -53,6 +53,7 @@
   // ---------------------------------------------------------------- real-life error model
 
   const G = 386.09; // gravity, in / s^2
+  const resolveContacts = (...a) => NS.resolveContacts(...a);
   const LAT_TAU = 0.015; // s: how fast the tyres kill sideways speed while they still have grip
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
@@ -94,6 +95,8 @@
     latGrip: 0.6, // friction coefficient sideways (0 = never slides)
     scrub: 1.05, // effective track width / measured track width
   };
+  // a robot with perfect grip, for the contact physics when real-life error is off
+  const IDEAL = { longLim: Infinity, latOn: false, latLim: 0, scrub: 1 };
   const NO_TRACKING = { vertical: { on: false, offset: 0 }, horizontal: { on: false, offset: 0 } };
 
   /** turns the settings into the numbers the physics uses; null = ideal robot */
@@ -118,6 +121,9 @@
       trkScaleV: (Math.max(0, n('trackScale')) / 100) * rng.randn(),
       trkScaleH: (Math.max(0, n('trackScale')) / 100) * rng.randn(),
       tracking,
+      // aligners grip the goal a little harder than average and vary from run to run: a small bias towards
+      // NOT aligning, so autos are no more consistent than they are on a real field
+      alignMu: clamp(1.08 + 0.12 * rng.randn(), 0.7, 1.6),
       walkDegPerSqrtS: (drift / 60) * 0.05, // the bias wanders a little during the run
       noiseRad: Math.max(0, n('gyroNoise')) * D2R,
       longLim: grip > 0 ? grip * gripMul * G : Infinity, // max change of ground speed, in / s^2
@@ -140,7 +146,7 @@
      * thinks: wheel travel measured at the wheels (so wheel slip fools it) with the heading taken from
      * the gyro (so gyro drift fools it). The motion controllers only ever see the second one.
      */
-    constructor(p, start, realism) {
+    constructor(p, start, realism, world) {
       this.p = p;
       this.x = start.x;
       this.y = start.y;
@@ -151,6 +157,9 @@
       this.cmdR = 0;
       this.touching = false;
       this.real = resolveReal(realism, p);
+      this.world = world || null; // solid goals + aligners (js/contact.js), or none
+      if (this.world) this.world.muScale = this.real ? this.real.alignMu : 1;
+      this.touchedGoals = new Set();
       // ground speed under each side of the drivetrain, and sideways speed of the body (in / s)
       this.uL = 0;
       this.uR = 0;
@@ -187,10 +196,11 @@
         this.gyroBias += re.walkDegPerSqrtS * D2R * Math.sqrt(ms / 1000) * re.rng.randn();
         this.gyroNoise = re.noiseRad * re.rng.randn();
       }
+      const world = this.world;
       for (let i = 0; i < SUBSTEPS; i++) {
         this.vL += ((this.cmdL / 127) * this.vmax - this.vL) * alpha;
         this.vR += ((this.cmdR / 127) * this.vmax - this.vR) * alpha;
-        if (!re) {
+        if (!re && !world) {
           const v = (this.vL + this.vR) / 2;
           const w = (this.vL - this.vR) / p.trackWidth; // rad/s, clockwise positive
           const hm = this.h + (w * dt) / 2;
@@ -206,20 +216,23 @@
 
         // --- wheel slip. The wheels follow the motors; the ground only follows the wheels as far as
         // friction allows (wheelspin when accelerating too hard, a skid when braking too hard).
+        const dyn = re || IDEAL;
         const x0 = this.x;
         const y0 = this.y;
-        const lim = re.longLim * dt;
+        const h0 = this.h;
+        const lim = dyn.longLim * dt;
         this.uL += clamp(this.vL - this.uL, -lim, lim);
         this.uR += clamp(this.vR - this.uR, -lim, lim);
-        const u = (this.uL + this.uR) / 2;
+        let u = (this.uL + this.uR) / 2;
         // turning scrubs the wheels sideways, so the robot turns a bit less than the wheels say
-        const w = (this.uL - this.uR) / (p.trackWidth * re.scrub);
+        const half = (p.trackWidth * dyn.scrub) / 2;
+        let w = (this.uL - this.uR) / (2 * half);
         const dh = w * dt;
-        if (re.latOn) {
+        if (dyn.latOn) {
           // a turning robot wants to keep going straight: that shows up as sideways speed in its own
           // frame, which the tyres remove as long as the sideways force stays under the friction limit
           this.bv -= u * dh;
-          const maxCut = re.latLim * dt;
+          const maxCut = dyn.latLim * dt;
           this.bv -= clamp(this.bv * (1 - Math.exp(-dt / LAT_TAU)), -maxCut, maxCut);
           if (Math.abs(this.bv) > this.maxSlide) this.maxSlide = Math.abs(this.bv);
         } else this.bv = 0;
@@ -228,17 +241,46 @@
         this.x += (Math.sin(hm) * u + Math.cos(hm) * this.bv) * dt;
         this.y += (Math.cos(hm) * u - Math.sin(hm) * this.bv) * dt;
         this.h += dh;
-        this.collideWalls();
+        if (world) {
+          // solid goals and walls: the robot (body + aligners) is stopped, slides along them and is turned by them
+          const f = { x: Math.sin(this.h), y: Math.cos(this.h) };
+          const r = { x: Math.cos(this.h), y: -Math.sin(this.h) };
+          const pose = { x: this.x, y: this.y, h: this.h };
+          const vel = { vx: u * f.x + this.bv * r.x, vy: u * f.y + this.bv * r.y, w };
+          const touched = resolveContacts(pose, vel, world);
+          this.x = pose.x;
+          this.y = pose.y;
+          this.touching = touched.wall || touched.goals.size > 0;
+          touched.goals.forEach((g) => this.touchedGoals.add(g));
+          u = vel.vx * f.x + vel.vy * f.y;
+          this.bv = vel.vx * r.x + vel.vy * r.y;
+          w = vel.w;
+          this.uL = u + w * half;
+          this.uR = u - w * half;
+          // with perfect grip the wheels are what the ground sees: a blocked robot stalls its wheels
+          if (!re) {
+            this.vL = this.uL;
+            this.vR = this.uR;
+          }
+        } else this.collideWalls();
+
+        if (!re) {
+          this.sx = this.x;
+          this.sy = this.y;
+          this.sh = this.h;
+          continue;
+        }
 
         // --- sensors: the gyro sees the real rotation (scale error + drift + noise), the encoders see
         // how far the wheels turned, not how far the robot moved
         // what the heading sensor adds this step: the IMU (scale error, drift), two forward tracking wheels
         // (the real rotation, tiny size error) or the drive encoders (they count wheelspin and scrub)
+        const dhAct = this.h - h0; // the rotation that really happened (a contact can add some)
         const dth =
           re.heading === 'imu'
-            ? (w * (1 + re.scale) + this.gyroBias) * dt
+            ? dhAct * (1 + re.scale) + this.gyroBias * dt
             : re.heading === 'wheels'
-              ? w * (1 + re.trkScaleV) * dt
+              ? dhAct * (1 + re.trkScaleV)
               : ((this.vL - this.vR) / p.trackWidth) * dt;
         this.gyro += dth;
         const shNew = this.gyro + (re.heading === 'imu' ? this.gyroNoise : 0) + this.shOff;
@@ -249,15 +291,16 @@
         const trk = re.tracking;
         const dx = this.x - x0;
         const dy = this.y - y0;
+        const hmA = h0 + dhAct / 2;
         let dF = ((this.vL + this.vR) / 2) * dt;
         let dS = 0;
         if (trk.vertical.on) {
-          const real = dx * Math.sin(hm) + dy * Math.cos(hm);
-          dF = (real - dh * trk.vertical.offset) * (1 + re.trkScaleV) + dth * trk.vertical.offset;
+          const real = dx * Math.sin(hmA) + dy * Math.cos(hmA);
+          dF = (real - dhAct * trk.vertical.offset) * (1 + re.trkScaleV) + dth * trk.vertical.offset;
         }
         if (trk.horizontal.on) {
-          const real = dx * Math.cos(hm) - dy * Math.sin(hm);
-          dS = (real + dh * trk.horizontal.offset) * (1 + re.trkScaleH) - dth * trk.horizontal.offset;
+          const real = dx * Math.cos(hmA) - dy * Math.sin(hmA);
+          dS = (real + dhAct * trk.horizontal.offset) * (1 + re.trkScaleH) - dth * trk.horizontal.offset;
         }
         this.sx += Math.sin(shm) * dF + Math.cos(shm) * dS;
         this.sy += Math.cos(shm) * dF - Math.sin(shm) * dS;
@@ -594,7 +637,9 @@
    *   robot           {wheelDiameter, rpm, speedPct, trackWidth, length, width, responseMs}
    *   start           {x, y, h}  field pose
    *   cfg             {lateral, angular, trackWidth, horizontalDrift, pathMode}
-   *   realism         optional {enabled, seed, gyroDrift, gyroScale, gyroNoise, grip, gripVar, latGrip, scrub}
+   *   realism         optional {enabled, seed, chassis, ...} (see resolveReal)
+   *   world           optional {goals: {tall, short, alliance base sizes}, aligners: {front, back}}: solid goals,
+   *                   walls and aligners (js/contact.js, js/aligners.js); without it the robot only meets the walls
    *   paths           [{ids:[...], name, points:[{x,y,v}] (inches, file frame)}]
    *   startFromSetPose  true: a setPose() before the first motion places the robot there
    *   maxMs           hard stop for the simulation
@@ -602,7 +647,8 @@
    */
   async function runSimulation(o) {
     const clock = new Clock();
-    const robot = new Robot(o.robot, o.start, o.realism);
+    const world = makeRunWorld(o);
+    const robot = new Robot(o.robot, o.start, o.realism, world);
     const events = [];
     const motions = [];
     const log = (kind, text) => events.push({ t: clock.now, kind, text });
@@ -706,7 +752,7 @@
     }
 
     // recorded trajectory (one entry per tick, parallel arrays)
-    const F = { t: [], x: [], y: [], h: [], vl: [], vr: [], mi: [], ax: [], ay: [], hit: [], cx: [], cy: [], ct: [], ox: [], oy: [], oh: [] };
+    const F = { t: [], x: [], y: [], h: [], vl: [], vr: [], mi: [], ax: [], ay: [], hit: [], cx: [], cy: [], ct: [], ox: [], oy: [], oh: [], alF: [], alB: [] };
     const record = () => {
       F.t.push(clock.now);
       F.x.push(robot.x);
@@ -732,7 +778,10 @@
       F.ox.push(robot.sx);
       F.oy.push(robot.sy);
       F.oh.push(robot.sh * R2D);
+      F.alF.push(align.front ? align.front.now : -1);
+      F.alB.push(align.back ? align.back.now : -1);
     };
+    const align = makeAlignTracking(world, robot, log, () => clock.now);
 
     let codeDone = false;
     let error = null;
@@ -758,6 +807,7 @@
       ch.step();
       robot.step(TICK_MS);
       clock.now += TICK_MS;
+      align.update();
       record();
       if (++ticks % 400 === 0) {
         if (o.onProgress) o.onProgress(clock.now);
@@ -765,6 +815,7 @@
       }
     }
     if (!error) log('info', `Auton code finished at ${(clock.now / 1000).toFixed(2)} s`);
+    const alignResult = align.finish();
     const stats = robot.real ? realStats(robot, F) : null;
     if (stats) {
       log('info', `Real-life error (seed ${robot.real.seed}): odometry ends ${stats.endPosErr.toFixed(1)} in and ${stats.endHeadErr.toFixed(1)}\u00b0 off the real robot (worst ${stats.maxPosErr.toFixed(1)} in, ${stats.maxHeadErr.toFixed(1)}\u00b0).`);
@@ -774,7 +825,82 @@
     const missing = Array.from(scope.__unknownCalls || []).filter((n) => !/^(printf|print|lcd|puts)$/.test(n));
     if (missing.length) log('info', `Not defined in your code, so skipped: ${missing.map((n) => n + '()').join(', ')}. If one moves the robot, paste its definition too.`);
 
-    return { frames: F, events, motions, durationMs: clock.now, error, vmax: robot.vmax, realism: stats, startFromCode: placed };
+    return { frames: F, events, motions, durationMs: clock.now, error, vmax: robot.vmax, realism: stats, startFromCode: placed, align: alignResult };
+  }
+
+  // ---------------------------------------------------------------- solid goals, aligners
+
+  /** the contact world for a run (js/contact.js), or null when the run has none */
+  function makeRunWorld(o) {
+    if (!o.world || !NS.makeWorld) return null;
+    const capsules = [];
+    const al = NS.sanitizeAligners ? NS.sanitizeAligners(o.world.aligners) : {};
+    Object.keys(al).forEach((side) => {
+      const set = al[side];
+      if (!set.on) return;
+      const mu = NS.MATERIALS[set.material].mu;
+      NS.alignerSegments(set).forEach((g) => capsules.push({ ...g, r: set.thickness / 2, mu, set: side }));
+    });
+    const world = NS.makeWorld({ half: o.world.half, goals: NS.buildGoals(o.world.goals), body: { length: o.robot.length, width: o.robot.width }, capsules });
+    world.aligners = al;
+    return world;
+  }
+
+  /**
+   * "Aligned" = any surface of a goal is within `tol` inches of the aligner's alignment point (the middle
+   * back point of the aligner). With real-life error on the allowance is 5% smaller, a small bias towards not
+   * aligning. Logs the moment a goal becomes aligned and sums up at the end.
+   */
+  function makeAlignTracking(world, robot, log, now) {
+    const out = { front: null, back: null };
+    if (!world || !world.aligners) return { ...out, update() {}, finish: () => null };
+    const bias = robot.real ? 0.95 : 1;
+    const sets = {};
+    ['front', 'back'].forEach((side) => {
+      const set = world.aligners[side];
+      if (!set || !set.on || !set.shapes.length) return;
+      const pt = NS.alignerPoint(set, side);
+      sets[side] = { side, pt, tol: set.tol * bias, rawTol: set.tol, now: -1, ever: null, closest: { d: Infinity, goal: null } };
+      out[side] = sets[side];
+    });
+    const label = (g) => `${g.team} ${g.kind} goal at (${g.x}, ${g.y})`;
+    return {
+      ...out,
+      update() {
+        const c = Math.cos(robot.h);
+        const s = Math.sin(robot.h);
+        Object.values(sets).forEach((st) => {
+          const wp = { x: robot.x + st.pt.x * c + st.pt.y * s, y: robot.y - st.pt.x * s + st.pt.y * c };
+          let best = { d: Infinity, goal: null };
+          for (const g of world.goals) {
+            if (Math.hypot(g.x - wp.x, g.y - wp.y) > g.R + st.tol + 2) continue;
+            const d = NS.distanceToPolygon(wp, g.poly);
+            if (d < best.d) best = { d, goal: g };
+          }
+          if (best.goal && best.d < st.closest.d) st.closest = best;
+          const idx = best.goal && best.d <= st.tol ? best.goal.index : -1;
+          if (idx !== st.now) {
+            if (idx >= 0 && (!st.ever || st.ever.goal.index !== idx)) {
+              st.ever = { goal: best.goal, d: best.d, t: now() };
+              log('info', `${st.side} aligner aligned with the ${label(best.goal)} (${best.d.toFixed(2)} in from the alignment point)`);
+            }
+            st.now = idx;
+          }
+        });
+      },
+      finish() {
+        const res = {};
+        Object.values(sets).forEach((st) => {
+          res[st.side] = st.ever
+            ? { aligned: true, goal: st.ever.goal.index, dist: st.ever.d, t: st.ever.t, still: st.now >= 0 }
+            : { aligned: false, goal: st.closest.goal ? st.closest.goal.index : null, dist: st.closest.d };
+          if (!st.ever && st.closest.goal) {
+            log('warn', `${st.side} aligner never aligned: closest was the ${label(st.closest.goal)}, ${st.closest.d.toFixed(2)} in from the alignment point (needs ${st.rawTol} in${robot.real ? ', a bit less with real-life error on' : ''}).`);
+          }
+        });
+        return res;
+      },
+    };
   }
 
   /** how far the odometry ended up from the real robot, for the run log */

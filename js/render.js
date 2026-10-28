@@ -90,10 +90,12 @@
       if (s.edit) this.drawEdit(ctx, s.edit);
       if (s.followPath) this.drawPolyline(ctx, s.followPath, C.guide, 2.5, false);
       if (s.trail && s.trail.length > 1) this.drawPolyline(ctx, s.trail, C.trail, 2, false);
-      if (s.ghost) this.drawRobot(ctx, s.ghost, s.robot, { ghost: true, handle: s.ghostHandle });
+      if (s.goalBoxes) this.drawGoalBoxes(ctx, s.goalBoxes);
+      if (s.ghost) this.drawRobot(ctx, s.ghost, s.robot, { ghost: true, handle: s.ghostHandle, aligners: s.aligners });
       if (s.aim && isFinite(s.aim.x)) this.drawAim(ctx, s.aim);
       if (s.odom) this.drawRobot(ctx, s.odom, s.robot, { odom: true });
-      if (s.pose) this.drawRobot(ctx, s.pose, s.robot, { hit: s.hit });
+      if (s.pose) this.drawRobot(ctx, s.pose, s.robot, { hit: s.hit, aligners: s.aligners });
+      if (s.alignPoints) this.drawAlignPoints(ctx, s.alignPoints);
       if (s.codeAxes) this.drawCodeAxes(ctx, s.codeAxes);
       this.drawWatermark(ctx);
     }
@@ -264,6 +266,7 @@
       ctx.moveTo(0, 0);
       ctx.lineTo(0, -L / 2);
       ctx.stroke();
+      if (o.aligners) this.drawAligners(ctx, o.aligners, o.ghost ? 0.55 : 1);
       if (o.handle) {
         ctx.strokeStyle = C.guide;
         ctx.fillStyle = C.guide;
@@ -275,6 +278,71 @@
         ctx.arc(0, -L / 2 - 14, 4, 0, Math.PI * 2);
         ctx.fill();
       }
+      ctx.restore();
+    }
+
+    /** the goal aligners, in the robot's frame (ctx is already moved to the robot and turned) */
+    drawAligners(ctx, aligners, alpha) {
+      const S = this.scale;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = C.guide;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ['front', 'back'].forEach((side) => {
+        const set = aligners[side];
+        if (!set || !set.on) return;
+        ctx.lineWidth = Math.max(1.5, set.thickness * S);
+        set.shapes.forEach((sh) => {
+          const pts = NS.shapePolyline(sh, 0.05);
+          ctx.beginPath();
+          pts.forEach((p, i) => (i ? ctx.lineTo(p.x * S, -p.y * S) : ctx.moveTo(p.x * S, -p.y * S)));
+          ctx.stroke();
+        });
+      });
+      ctx.restore();
+    }
+
+    /** outlines of the solid goals; the ones an aligner has aligned with are filled green */
+    drawGoalBoxes(ctx, boxes) {
+      ctx.save();
+      boxes.forEach((b) => {
+        ctx.beginPath();
+        b.poly.forEach((p, i) => (i ? ctx.lineTo(this.wx(p.x), this.wy(p.y)) : ctx.moveTo(this.wx(p.x), this.wy(p.y))));
+        ctx.closePath();
+        if (b.aligned) {
+          ctx.globalAlpha = 0.35;
+          ctx.fillStyle = C.trail;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+        ctx.setLineDash(b.aligned ? [] : [4, 3]);
+        ctx.strokeStyle = b.aligned ? C.trail : C.label;
+        ctx.globalAlpha = b.aligned ? 1 : 0.6;
+        ctx.lineWidth = b.aligned ? 2 : 1;
+        ctx.stroke();
+      });
+      ctx.restore();
+    }
+
+    /** where each aligner's alignment point is on the field */
+    drawAlignPoints(ctx, pts) {
+      ctx.save();
+      pts.forEach((p) => {
+        const x = this.wx(p.x);
+        const y = this.wy(p.y);
+        ctx.fillStyle = p.aligned ? C.trail : C.label;
+        ctx.strokeStyle = C.robotEdge;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, y - 5);
+        ctx.lineTo(x + 5, y);
+        ctx.lineTo(x, y + 5);
+        ctx.lineTo(x - 5, y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      });
       ctx.restore();
     }
 

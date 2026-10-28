@@ -8,9 +8,11 @@
   // ------------------------------------------------------------------ settings
 
   const DEFAULTS = {
-    start: { x: -60, y: -60, h: 0 },
+    start: { x: -58, y: -58, h: 0 },
     robot: { wheelDiameter: 3.25, rpm: 450, speedPct: 90, trackWidth: 12, length: 15, width: 15, responseMs: 80 },
-    cfg: { horizontalDrift: 2, pathMode: 'field', mechanismWait: 0, startFromCode: true },
+    cfg: { horizontalDrift: 2, pathMode: 'field', mechanismWait: 0, startFromCode: true, solidGoals: true },
+    aligners: JSON.parse(JSON.stringify(V.DEFAULT_ALIGNERS)),
+    goals: { ...V.GOAL_DEFAULTS },
     real: { enabled: true },
     chassis: JSON.parse(JSON.stringify(V.DEFAULT_CHASSIS)),
     lateral: { ...V.DEFAULT_LATERAL },
@@ -47,6 +49,11 @@
       ['robot.responseMs', 'Motor response (ms)', 5, 1, 400],
       ['cfg.horizontalDrift', 'Horizontal drift', 0.5, 0, 50],
       ['cfg.mechanismWait', 'Lift / claw wait (ms, 0 = none)', 50, 0, 5000],
+    ],
+    formGoals: [
+      ['goals.tall', 'Tall goal (centre)', 0.1, 2, 12],
+      ['goals.short', 'Short neutral goals', 0.1, 2, 12],
+      ['goals.alliance', 'Alliance goals', 0.1, 2, 12],
     ],
     formLat: controllerFields('lateral'),
     formAng: controllerFields('angular'),
@@ -120,6 +127,8 @@
     $('pathModeNote').innerHTML = PATH_MODE_NOTES[S.cfg.pathMode];
     $('realOn').checked = !!S.real.enabled;
     $('startFromCode').checked = !!S.cfg.startFromCode;
+    $('solidGoals').checked = !!S.cfg.solidGoals;
+    renderAlignSummary();
     renderChassisUi();
     $('lang').value = S.lang;
     $('autonLimit').value = String(S.autonLimit);
@@ -284,6 +293,9 @@
   let drawQueued = false;
   let trail = [];
   let compiled = null;
+  let runs = []; // run history: {n, at, seed, text}
+  let runCounter = 0;
+  let goalCache = { key: '', goals: [] };
   let runSeed = null; // the random draw of the current run (see runNow)
   let chassisView = null;
   let codeStart = null; // {x, y, h} when the code's own setPose() placed the robot on the last run
@@ -308,7 +320,8 @@
     }
     running = true;
     // pressing Run (or Ctrl+Enter) gives the robot a new random draw; re-runs after a settings change keep it
-    if (opts.autoplay || runSeed == null) runSeed = 1 + Math.floor(Math.random() * 999999);
+    if (opts.seed != null) runSeed = opts.seed;
+    else if (opts.autoplay || runSeed == null) runSeed = 1 + Math.floor(Math.random() * 999999);
     $('btnRun').classList.add('busy');
     try {
       const c = currentCompiled();
@@ -324,6 +337,7 @@
         robot: S.robot,
         start: S.start,
         realism: { enabled: S.real.enabled, seed: runSeed, chassis: S.chassis },
+        world: S.cfg.solidGoals ? { goals: S.goals, aligners: S.aligners } : null,
         startFromSetPose: S.cfg.startFromCode,
         cfg: { lateral: S.lateral, angular: S.angular, trackWidth: S.robot.trackWidth, horizontalDrift: S.cfg.horizontalDrift, pathMode: S.cfg.pathMode },
         paths: paths.map((p) => ({
@@ -352,6 +366,7 @@
         for (let i = 0; i < f.t.length; i++) trail.push({ x: f.x[i], y: f.y[i] });
       }
       renderLog(logLines, res);
+      recordRun(res, !!(opts.autoplay || opts.seed != null));
       const scrub = $('scrub');
       scrub.max = String(res.durationMs);
       simMs = 0;
@@ -502,12 +517,28 @@
       paths: $('optPaths').checked ? previewPaths() : null,
       edit: $('optPaths').checked || V.PathTool.tool() === 'edit' ? V.PathTool.drawState() : null,
       codeAxes: $('optAxes').checked ? { x: startFrame().px, y: startFrame().py, h: (startFrame().psi * 180) / Math.PI } : null,
+      aligners: S.cfg.solidGoals && hasAligners() ? S.aligners : null,
     };
+    const goals = S.cfg.solidGoals ? currentGoals() : [];
     if (f) {
       state.pose = { x: f.x[idx], y: f.y[idx], h: f.h[idx] };
       state.hit = !!f.hit[idx];
       if ($('optTrail').checked) state.trail = trail.slice(0, idx + 1);
       if ($('optOdom').checked && S.real.enabled && f.ox) state.odom = { x: f.ox[idx], y: f.oy[idx], h: f.oh[idx] };
+      if (goals.length) {
+        const al = { front: f.alF ? f.alF[idx] : -1, back: f.alB ? f.alB[idx] : -1 };
+        const on = new Set([al.front, al.back]);
+        const boxes = goals.filter((g) => $('optGoals').checked || on.has(g.index)).map((g) => ({ poly: g.poly, aligned: on.has(g.index) }));
+        if (boxes.length) state.goalBoxes = boxes;
+        if (state.aligners) {
+          const c = Math.cos(f.h[idx] * D2R);
+          const s = Math.sin(f.h[idx] * D2R);
+          state.alignPoints = ['front', 'back'].filter((k) => S.aligners[k].on && S.aligners[k].shapes.length).map((k) => {
+            const pt = V.alignerPoint(S.aligners[k], k);
+            return { x: f.x[idx] + pt.x * c + pt.y * s, y: f.y[idx] - pt.x * s + pt.y * c, aligned: al[k] >= 0 };
+          });
+        }
+      }
       const mi = f.mi[idx];
       if (mi >= 0 && result.motions[mi] && result.motions[mi].follow) state.followPath = result.motions[mi].follow;
       if ($('optAim').checked && isFinite(f.ax[idx])) state.aim = { x: f.ax[idx], y: f.ay[idx] };
@@ -528,6 +559,7 @@
       $('tField').textContent = `${S.start.x.toFixed(1)}, ${S.start.y.toFixed(1)}  ${S.start.h.toFixed(0)}°`;
       $('tCode').textContent = '0.0, 0.0  0°';
       $('tSpeed').textContent = '-';
+      $('tAlign').textContent = '-';
       $('tMotion').textContent = '-';
       return;
     }
@@ -535,6 +567,13 @@
     $('tField').textContent = `${f.x[idx].toFixed(1)}, ${f.y[idx].toFixed(1)}  ${norm360(f.h[idx]).toFixed(0)}°`;
     const off = S.real.enabled ? `  (off by ${Math.hypot(f.ox[idx] - f.x[idx], f.oy[idx] - f.y[idx]).toFixed(1)} in, ${Math.abs(wrap180(f.oh[idx] - f.h[idx])).toFixed(1)}°)` : '';
     $('tCode').textContent = `${f.cx[idx].toFixed(1)}, ${f.cy[idx].toFixed(1)}  ${f.ct[idx].toFixed(0)}°${off}`;
+    const alText = ['front', 'back']
+      .filter((k) => S.cfg.solidGoals && S.aligners[k].on && S.aligners[k].shapes.length)
+      .map((k) => {
+        const g = f[k === 'front' ? 'alF' : 'alB'][idx];
+        return `${k}: ${g >= 0 ? 'aligned (goal ' + (g + 1) + ')' : 'no'}`;
+      });
+    $('tAlign').textContent = alText.length ? alText.join(', ') : '-';
     const v = (f.vl[idx] + f.vr[idx]) / 2;
     $('tSpeed').textContent = `${v.toFixed(1)} in/s  (L ${f.vl[idx].toFixed(0)}, R ${f.vr[idx].toFixed(0)})`;
     const m = mi >= 0 ? result.motions[mi] : null;
@@ -689,6 +728,10 @@
       // the error sizes are no longer settings (they come from the chassis); only on / off is kept
       S.real = { enabled: S.real.enabled !== false };
       S.chassis = V.sanitizeChassis(S.chassis);
+      S.aligners = V.sanitizeAligners(S.aligners);
+      Object.keys(V.GOAL_DEFAULTS).forEach((k) => {
+        if (!(S.goals[k] >= 2 && S.goals[k] <= 12)) S.goals[k] = V.GOAL_DEFAULTS[k];
+      });
       // 500 ms was the old default for the lift / claw wait; the new default is no wait at all
       if (saved.S.cfg && saved.S.cfg.mechanismWait === 500) S.cfg.mechanismWait = 0;
       pathFiles = Array.isArray(saved.files) ? saved.files : [];
@@ -813,6 +856,23 @@
       requestDraw();
     });
     $('speed').addEventListener('change', requestDraw);
+    // aligners and goals
+    $('solidGoals').addEventListener('change', (e) => {
+      S.cfg.solidGoals = e.target.checked;
+      settingsChanged();
+    });
+    const alignEditor = V.AlignerEditor.init({
+      $,
+      get: () => ({ aligners: S.aligners, robot: S.robot, chassis: S.chassis, goals: S.goals }),
+      changed: () => {
+        renderAlignSummary();
+        settingsChanged();
+      },
+    });
+    ['Front', 'Back'].forEach((k) => $('btnAlign' + k).addEventListener('click', () => alignEditor && alignEditor.open(k.toLowerCase())));
+    $('optGoals').addEventListener('change', requestDraw);
+    setInterval(renderRuns, 30000);
+    renderAlignSummary();
     chassisView = new V.ChassisView($('chassisCanvas'));
     chassisView.onToggle = (side, i) => {
       const list = S.chassis[side];
@@ -863,6 +923,73 @@
     bindCanvas();
     const splashShown = Date.now();
     runNow({ autoplay: true }).then(() => hideSplash(splashShown));
+  }
+
+  // ------------------------------------------------------------------ aligners, goals, run history
+
+  const hasAligners = () => ['front', 'back'].some((k) => S.aligners[k].on && S.aligners[k].shapes.length);
+
+  /** the solid goals at the sizes in the settings (rebuilt only when a size changes) */
+  function currentGoals() {
+    const key = JSON.stringify(S.goals);
+    if (goalCache.key !== key) goalCache = { key, goals: V.buildGoals(S.goals) };
+    return goalCache.goals;
+  }
+
+  function renderAlignSummary() {
+    const host = $('alignSummary');
+    if (!host) return;
+    host.innerHTML = ['front', 'back']
+      .map((k) => {
+        const a = S.aligners[k];
+        if (!a.on) return `<div>${k}: off</div>`;
+        const n = a.shapes.length;
+        return `<div>${k}: ${n ? n + ' shape' + (n > 1 ? 's' : '') : 'nothing drawn yet'}, ${esc(V.MATERIALS[a.material].label.toLowerCase())}, aligned within ${a.tol} in</div>`;
+      })
+      .join('');
+  }
+
+  function timeAgo(t) {
+    const s = Math.round((Date.now() - t) / 1000);
+    if (s < 45) return 'just now';
+    const m = Math.round(s / 60);
+    if (m < 60) return m + ' min ago';
+    const h = Math.round(m / 60);
+    return h < 24 ? h + ' h ago' : Math.round(h / 24) + ' d ago';
+  }
+
+  /** a line for the run history: how long it took, how far off the odometry ended, whether the aligners aligned */
+  function describeRun(res) {
+    if (!res.frames) return 'could not run';
+    const parts = [`${(res.durationMs / 1000).toFixed(1)} s`];
+    if (res.realism) parts.push(`odometry ${res.realism.endPosErr.toFixed(1)} in / ${res.realism.endHeadErr.toFixed(1)}° off`);
+    if (res.align) ['front', 'back'].forEach((k) => res.align[k] && parts.push(`${k} ${res.align[k].aligned ? 'aligned' : 'not aligned'}`));
+    if (res.error) parts.push('error');
+    return parts.join(' · ');
+  }
+
+  function recordRun(res, fresh) {
+    const entry = { seed: runSeed, text: describeRun(res) };
+    if (fresh || !runs.length) runs.unshift({ n: ++runCounter, at: Date.now(), ...entry });
+    else Object.assign(runs[0], entry); // a re-run after changing a setting keeps the same draw: update the entry
+    runs = runs.slice(0, 30);
+    renderRuns();
+  }
+
+  function renderRuns() {
+    const ul = $('runList');
+    if (!ul) return;
+    $('runCount').textContent = runs.length ? runs.length + ' run' + (runs.length > 1 ? 's' : '') : '';
+    ul.innerHTML = '';
+    runs.forEach((r, i) => {
+      const li = document.createElement('li');
+      if (i === 0) li.className = 'cur';
+      li.innerHTML = `<span class="what"><b>Run #${r.n}</b> &middot; ${esc(r.text)}</span><span class="when" title="random seed ${r.seed}">${timeAgo(r.at)}</span>` +
+        (i === 0 ? '' : '<button class="btn" type="button" title="Run this random draw again with the current settings">Replay</button>');
+      const b = li.querySelector('button');
+      if (b) b.addEventListener('click', () => runNow({ seed: r.seed, autoplay: true }));
+      ul.appendChild(li);
+    });
   }
 
   // ------------------------------------------------------------------ chassis

@@ -2,7 +2,7 @@
 'use strict';
 const path = require('path');
 const assert = require('assert');
-for (const f of ['lemlib', 'chassis', 'paths', 'translate', 'sim']) require(path.join('..', 'js', f + '.js'));
+for (const f of ['lemlib', 'chassis', 'aligners', 'contact', 'paths', 'translate', 'sim']) require(path.join('..', 'js', f + '.js'));
 const V = globalThis.VSim;
 
 const ROBOT = { wheelDiameter: 3.25, rpm: 450, speedPct: 90, trackWidth: 12, length: 15, width: 15, responseMs: 80 };
@@ -15,7 +15,7 @@ const cfg = (extra) => ({
   ...extra,
 });
 
-async function run(code, { start = { x: 0, y: 0, h: 0 }, paths = [], language = 'cpp', cfgExtra, realism, startFromSetPose, mechanismWaitMs } = {}) {
+async function run(code, { start = { x: 0, y: 0, h: 0 }, paths = [], language = 'cpp', cfgExtra, realism, startFromSetPose, mechanismWaitMs, world } = {}) {
   const c = V.compileAuton(code, { language });
   const res = await V.runSimulation({
     js: c.js,
@@ -28,6 +28,7 @@ async function run(code, { start = { x: 0, y: 0, h: 0 }, paths = [], language = 
     realism,
     startFromSetPose,
     mechanismWaitMs,
+    world,
   });
   const f = res.frames;
   if (!f) return { res, c, end: null };
@@ -676,6 +677,95 @@ const angDiff = (a, b) => Math.abs(normDeg(a - b));
     assert.strictEqual(d.driftHint, 2);
     assert.strictEqual(V.deriveChassis({ left: ['omni', 'traction'], mirror: true }, ROBOT).driftHint, 8);
     console.log('ok LemLib docs checks: Omniwheel, odometry import, utils, Timer, PID, resetLocalPosition, heading source');
+  }
+
+  // --- goal aligners: shapes, solid goals, contact physics and the aligned check
+  {
+    // shapes
+    const arc = V.arcFromThree({ x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 });
+    near(arc.cx, 0, 1e-9, 'arc centre x');
+    near(arc.r, 1, 1e-9, 'arc radius');
+    near(arc.sweep, 180, 1e-6, 'a counter-clockwise half circle');
+    const cw = V.arcFromThree({ x: 1, y: 0 }, { x: 0, y: -1 }, { x: -1, y: 0 });
+    near(cw.sweep, -180, 1e-6, 'through the bottom is clockwise');
+    assert.strictEqual(V.arcFromThree({ x: 0, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 2 }), null, 'three points in a line are not an arc');
+    const ends = V.shapeEnds({ type: 'arc', cx: 0, cy: 0, r: 2, a0: 90, sweep: -90 });
+    near(ends[1].x, 2, 1e-9, 'arc end x');
+    const circle = V.shapePolyline({ type: 'circle', cx: 0, cy: 0, r: 3 });
+    assert(circle.length > 12 && Math.abs(circle[0].x - circle[circle.length - 1].x) < 1e-9, 'a circle closes');
+    const chord = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+    assert(circle.every((q, i) => i === 0 || chord(q, circle[i - 1]) < 1.2), 'the circle is cut finely enough');
+    near(V.shapeDimensions({ type: 'line', x1: 0, y1: 0, x2: 3, y2: 4 }).length, 5, 1e-9, 'line length');
+    near(V.shapeDimensions({ type: 'circle', cx: 0, cy: 0, r: 2 }).circumference, 4 * Math.PI, 1e-9, 'circumference');
+    const clean = V.sanitizeAligners({ front: { shapes: [{ type: 'line', x1: 0, y1: 0, x2: 0, y2: 0 }, { type: 'line', x1: 0, y1: 0, x2: 3, y2: 0 }, { type: 'blob' }], material: 'wood', thickness: 99 }, back: null });
+    assert.strictEqual(clean.front.shapes.length, 1, 'zero-length and unknown shapes are dropped');
+    assert.strictEqual(clean.front.material, 'polycarbonate');
+    assert.strictEqual(clean.front.thickness, 1);
+    assert.strictEqual(clean.back.on, false, 'back aligners are off by default');
+    assert.strictEqual(clean.front.on, true, 'front aligners are on by default');
+    ['polycarbonate', 'acetal', 'steel', 'aluminium'].forEach((m) => assert(V.MATERIALS[m].mu > 0.05 && V.MATERIALS[m].mu < 1));
+    assert(V.MATERIALS.acetal.mu < V.MATERIALS.polycarbonate.mu, 'acetal is the slippery one');
+
+    const L = (x1, y1, x2, y2) => ({ type: 'line', x1, y1, x2, y2 });
+    const pocket = [L(-3.1, 7.5, 3.1, 7.5), L(-3.1, 7.5, -3.1, 13), L(3.1, 7.5, 3.1, 13), L(-3.1, 13, -6, 16), L(3.1, 13, 6, 16)];
+    const withPocket = (extra) => V.sanitizeAligners({ front: { on: true, shapes: pocket, ...extra }, back: { on: false } });
+    assert.deepStrictEqual(V.alignerPoint(withPocket().front, 'front'), { x: 0, y: 7.5 }, 'the alignment point is the middle of the back of the aligners');
+    assert.deepStrictEqual(V.alignerPoint(withPocket({ auto: false, point: { x: 1, y: 8 } }).front, 'front'), { x: 1, y: 8 }, 'or placed by hand');
+
+    // the goals are solid: the robot's body stops against the tall goal in the centre (5.8 in across, 15 in robot)
+    const goalWorld = { goals: {}, aligners: V.sanitizeAligners({ front: { on: false }, back: { on: false } }) };
+    const drive = 'chassis.moveToPoint(0, 35, 3000, {}, false);';
+    t = await run(drive, { start: { x: 0, y: -25, h: 0 }, world: goalWorld });
+    near(t.end.y, -2.9 - 7.5, 0.4, 'the robot stops against the goal');
+    t = await run(drive, { start: { x: 0, y: -25, h: 0 } });
+    assert(t.end.y > 8, 'without solid goals it drives through: ' + t.end.y);
+    // the goals have an exact size that can be set
+    t = await run(drive, { start: { x: 0, y: -25, h: 0 }, world: { ...goalWorld, goals: { tall: 8 } } });
+    near(t.end.y, -4 - 7.5, 0.4, 'a bigger goal stops it sooner');
+    // the field perimeter is 140.5 in inside: the robot cannot reach the tile edge at 72
+    t = await run('chassis.moveToPoint(0, 140, 4000, {}, false);', { start: { x: 60, y: -50, h: 0 }, world: goalWorld });
+    near(t.end.y, 70.25 - 7.5, 0.5, 'the wall is at 70.25 in');
+    // ... and hits things with its whole body, not its centre: a corner sliding on a goal turns the robot
+    t = await run('chassis.moveToPoint(2, 35, 3000, {}, false);', { start: { x: 3.5, y: -25, h: 0 }, world: goalWorld });
+    assert(t.res.events.every((e) => e.kind !== 'error'), 'a glancing hit runs');
+
+    // aligners: a pocket the goal drops into
+    const pocketRun = (dx, extra = {}, real = null) => run(drive, { start: { x: dx, y: -25, h: 0 }, world: { goals: {}, aligners: withPocket(extra) }, realism: real });
+    for (const dx of [0, 1, 2, 3]) {
+      t = await pocketRun(dx);
+      assert(t.res.align.front.aligned, `a pocket aligns a goal ${dx} in off-centre`);
+      assert(t.res.events.some((e) => /front aligner aligned with the neutral tall goal/.test(e.text)), 'the log says so');
+      assert(t.res.frames.alF.some((g) => g === 0), 'every frame records which goal is aligned');
+      near(t.end.x, 0, 1.2, `the pocket centres the robot on the goal (${dx} in off)`);
+    }
+    t = await pocketRun(0, { tol: 0.02 });
+    assert.strictEqual(t.res.align.front.aligned, false, 'a tighter tolerance is not met');
+    assert(t.res.events.some((e) => e.kind === 'warn' && /never aligned/.test(e.text)), 'and the log says how close it got');
+    assert(t.res.align.front.dist > 0.02 && t.res.align.front.dist < 1);
+    t = await pocketRun(0, { tol: 3 });
+    assert(t.res.align.front.aligned, 'a loose tolerance is easy');
+    // the other goals: an alliance goal off to one side is ignored, too far away to align
+    t = await run(drive, { start: { x: 0, y: -25, h: 0 }, world: { goals: {}, aligners: withPocket() } });
+    assert.strictEqual(t.res.align.front.goal, 0);
+    // aligners that miss the goal do not align: robot far to the side
+    t = await pocketRun(9);
+    assert.strictEqual(t.res.align.front.aligned, false, 'too far off to be caught');
+    // back aligners work for driving backwards
+    const backPocket = pocket.map((s) => L(s.x1, -s.y1, s.x2, -s.y2));
+    t = await run('chassis.moveToPoint(0, -35, 3000, {.forwards = false}, false);', { start: { x: 0, y: 25, h: 0 }, world: { goals: {}, aligners: V.sanitizeAligners({ front: { on: false }, back: { on: true, shapes: backPocket } }) } });
+    assert(t.res.align.back && t.res.align.back.aligned, 'the back aligner aligns on a backwards approach');
+    // with real-life error on the same pocket still works for a good approach, and is a bit less certain
+    t = await pocketRun(0, {}, { enabled: true, seed: 3 });
+    assert(t.res.align.front.aligned, 'a straight approach still aligns with real-life error');
+    t = await pocketRun(4, {}, { enabled: true, seed: 3 });
+    const ideal4 = await pocketRun(4);
+    assert(!t.res.align.front.aligned || ideal4.res.align.front.aligned, 'a messy approach is never easier than in the perfect sim');
+
+    // many frames, and speed: a full run with contacts stays quick
+    const t0 = Date.now();
+    await pocketRun(1);
+    assert(Date.now() - t0 < 4000, 'a run with contacts is fast enough: ' + (Date.now() - t0) + ' ms');
+    console.log('ok aligners: shapes, solid goals, walls, pocket alignment, tolerance, back aligners');
   }
 
   console.log('\nALL ENGINE TESTS PASSED');

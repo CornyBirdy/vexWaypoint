@@ -10,6 +10,26 @@
           "name": "Added",
           "items": [
             {
+              "text": "**Goal aligners.** Draw the aligners on the chassis in a CAD-style **sketch editor** (*Goal aligners* panel): lines, 3-point arcs, centre-point arcs and circles on an inch grid with snapping (1 / 0.5 / 0.25 in or off), exact dimensions typed in (line length and angle, arc and circle radius, arc sweep), select / drag handles, mirror copy, undo / redo, zoom and pan. The drivetrain is drawn at its entered size with its wheels. Front aligners are on by default; back aligners are drawn separately. Each set has a material (polycarbonate, acetal, steel, aluminium), a stock thickness and an alignment point (default the middle of the back of the aligners, or drag it).",
+              "sub": []
+            },
+            {
+              "text": "**The goals and the field walls are now solid.** The nine goals are fixed to the field. The robot is a rigid body: its body and aligners stop against the goals and walls, slide along them with friction and are turned by them, so aligners catch and guide the robot. The walls are at 70.25 in from the centre (140.5 in inside).",
+              "sub": []
+            },
+            {
+              "text": "**Aligned check.** A goal counts as aligned when any surface of it is within *Aligned within (in)* of the alignment point. The run log reports when that happens (or how close it got), the *align* readout and a green goal highlight show it on the timeline, and the run history notes it. With real-life error on there is a small bias against aligning (stickier aligners, 5% less allowance).",
+              "sub": []
+            },
+            {
+              "text": "Goal base sizes are settable (**estimates**: the manual only has them in a drawing), and *goal hitboxes* shows them on the field.",
+              "sub": []
+            },
+            {
+              "text": "**Run history**: every Run is listed as \"Run #N\" with how long ago, its random seed, how long it took, how far off the odometry ended and whether the aligners aligned; **Replay** runs an earlier random draw again.",
+              "sub": []
+            },
+            {
               "text": "**Chassis panel**: map out the drivetrain. Choose how many wheels (2 to 4 per side) and whether each is **omni** or **traction**, front to back (click a wheel in the drawing to switch it, or use the lists), with the right side mirroring the left or set separately. Add a **forward** and / or **sideways tracking wheel** with its offset from the centre. It is drawn top-down on an inch grid with the robot size and wheel positions. A summary line shows what the chassis does on the floor.",
               "sub": []
             },
@@ -74,6 +94,14 @@
         {
           "name": "Changed",
           "items": [
+            {
+              "text": "The example auton now uses field coordinates (`chassis.setPose(-58, -58, 0)`, then field positions), as real LemLib code does, and the default start pose is (-58, -58) so the robot can turn in place at the wall (the walls are now at 70.25 in).",
+              "sub": []
+            },
+            {
+              "text": "Turn the contact physics off with *goals and walls are solid* (then the robot is only kept inside the old 144 in field, as before). Robot-versus-goal and robot-versus-wall contact applies to the perfect robot too.",
+              "sub": []
+            },
             {
               "text": "**Lift / claw waits no longer add time.** A loop such as `while (liftPIDEnabled != 1) { pros::delay(20); }` counts as already finished instead of being carried on after 500 ms. The *Lift / claw wait* setting now defaults to 0 (a saved 500 is reset to 0); set it above 0 to make every such wait cost that many ms. Loops that do other work, and waits on the drivetrain, behave as before.",
               "sub": []

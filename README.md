@@ -13,7 +13,7 @@ It runs your **LemLib** auton code (C++ or JavaScript), follows **path.jerryio**
 
 It includes a **path editor** ported from [path.jerryio](https://github.com/Jerrylum/path.jerryio), so you can draw and tune paths right on the field, and its Override field pictures. Because of that this project is licensed **GPL-3.0** (see `LICENSE` and `NOTICE.md`).
 
-Only the drivetrain is simulated. Intake, lift, claw and the like are ignored, and the game elements (goals, loaders, toggles, cups, pins) are visual only.
+Only the drivetrain is simulated. Intake, lift, claw and the like are ignored. The **goals and the field walls are solid** (the robot, with its goal aligners, hits them); loaders, toggles, cups and pins are visual only.
 
 ## Running it
 
@@ -33,6 +33,7 @@ There is no build step, so there is no `rebuild.bat`.
    **`chassis.setPose(x, y, theta)` at the start of your code sets the start pose** (field coordinates, `theta` is a compass heading, `0°` = up the field), so the robot starts where your code says and the Start pose numbers follow it. Untick *take the start pose from setPose()* to place the robot by hand instead. A `setPose()` after the robot has moved only re-anchors the code's coordinates (the robot stays where it is, like on a real robot) and clears odometry error. All spellings work: `setPose(x, y, theta)`, `setPose(x, y, rad, true)`, `setPose(lemlib::Pose(x, y, theta))`, `setPose({x, y, theta})`, `setPose(pose)`. `getPose(radians, standardPosition)` works too.
 2. **Drivetrain** - wheel diameter, wheel RPM, **real-life speed %** (how much of the theoretical top speed the robot really reaches), track width, robot size, motor response time and LemLib's horizontal drift.
    **Chassis** - how many wheels, which are omni and which traction (front to back), and optional forward / sideways tracking wheels, drawn top-down on an inch grid.
+   **Goal aligners** - draw the aligners on the chassis in a CAD-style sketch; the goals are fixed solid objects, so they catch and guide the robot (see below).
    **Real-life error** - one tickbox: gyro drift, wheel slip, sideways sliding and turn scrub, sized by your chassis (see below). On by default; untick it for a perfect robot.
 3. **Path files** - drop in whatever jerry.io exported: LemLib `.txt`, a `.jerryio` project, or a LemLib v1.0 binary file. Each gets a name for your code: the file name with non-letters turned into `_`, e.g. `my path.txt` → `my_path_txt`, `curve.jerryio` → `curve_jerryio` (a file with several paths also gets each path's own name). Click the name to copy it.
 4. **Auton code** - paste your `autonomous()` (or the whole `main.cpp`), press **Run auton** or `Ctrl + Enter`.
@@ -91,7 +92,12 @@ The sim warns in the run log when `turnToPoint` / `swingToPoint` aims at a point
 ## Things to know (accuracy)
 
 * **LemLib behaviour** is a port of the **LemLib v0.5.6** source (PID, exit conditions, `moveToPoint`, `moveToPose`, turns, swings, `follow`, the motion queue and `minSpeed` / `earlyExitRange` chaining), so parameters behave as they do on the robot, including its quirks. For example, in v0.5.6 a `moveToPose` chain with a small `earlyExitRange` exits when the robot gets within 7.5 in of the target, and with a larger one it never takes the early exit and settles instead. The motors are modelled simply, so timing will not match a real robot exactly.
-* **Physics** is a differential drive: wheel speed follows the motor command with a first-order lag ("motor response") and the robot cannot leave the field walls. There are no collisions with goals.
+* **Physics** is a differential drive: wheel speed follows the motor command with a first-order lag ("motor response"). The robot is a rigid body that hits the field walls and the goals (next bullet).
+* **Goal aligners and solid goals** (panel *Goal aligners*; the tickbox turns the contact physics off). The nine goals are fixed to the field, so they never move. The robot's body and its aligners are rigid: contact stops the robot, makes it slide along the goal with friction, and turns it when the contact is off its centre, so a funnel can catch a goal and square the robot up. Everything is 2D from above (the aligner "just hits the goal's base"). The field walls are at 70.25 in from the centre (the metal perimeter is 140.5 in inside), so the robot stops there rather than at the tile edge.
+  * **Draw the aligners** with *Edit front aligners* / *Edit back aligners*: lines, 3-point arcs, centre-point arcs and circles on an inch grid (snap to 1, 0.5 or 0.25 in, or off), with exact numbers (line length and angle, arc and circle radius, arc sweep) typed into the side panel. Front aligners are on by default, back ones are drawn separately. Pick a material (polycarbonate, acetal, steel or aluminium) and a stock thickness. The sketch shows the chassis, its wheels and, if you like, a goal seated against the alignment point.
+  * **Aligned** means any surface of a goal is within *Aligned within (in)* of the aligner's **alignment point**, by default the middle of the back of the aligners (the rear-most point of a front set), which you can also drag to wherever you want. The run log says when a goal becomes aligned, or how close it got if it never did; the *align* readout and a green highlight on the field show it while you scrub.
+  * Aligner friction against the (plastic) goals is an estimate per material (acetal slipperiest, aluminium grippiest). With *real-life error* on the aligners grip a little harder than average and the amount changes from run to run, and the aligned allowance is 5% smaller: a small bias towards not aligning, so autos are not more consistent than they are on a real field.
+  * **Goal sizes are estimates.** The game manual only gives the goal base in a drawing (Appendix A), so the three sizes (flat to flat, regular octagon, flat sides parallel to the walls) default to 5.8 in, measured off the field picture. Set them from the manual in the *Goal base size* boxes; *goal hitboxes* under the field outlines them. The goal positions are the nine in the manual (1 tile from one wall, 2 tiles from another).
 * **Real-life error** (tickbox in the panel of the same name; untick it for a perfect robot). The robot has a real pose and an odometry pose, and LemLib only ever sees the odometry one. Every **Run** (button or `Ctrl+Enter`) gives the robot a new random draw, so results vary like on a real field; re-runs after you change a setting keep the same draw (the run log prints its seed). The size of the errors comes from the **Chassis** panel:
   * **Gyro**: a bias in degrees per minute (random per run, and it wanders a little), a turn-rate scale error in % and reading noise. The odometry heading is the gyro's, so it drifts away from the real heading. A tracking wheel does not help here.
   * **Wheel slip**: the ground follows each side's wheel speed only as far as friction allows (forward grip x g), so hard starts spin the wheels and hard stops skid. Traction wheels grip more than omnis. With drive-wheel odometry the encoders count wheel travel, so the odometry over- or under-counts, and wheels that keep turning against a wall keep adding distance.
@@ -118,6 +124,9 @@ css/tokens.css                  colours, radii, spacing, fonts (dark / light, ac
 js/theme.js                     Auto / Light / Dark switch
 js/lemlib.js                    LemLib controllers + chassis (motions)
 js/chassis.js                   wheel layout -> grip, scrub, odometry; chassis drawing
+js/aligners.js                  aligner shapes (lines, arcs, circles), materials, alignment point
+js/contact.js                   solid goals + walls: rigid-body contact physics
+js/sketch.js                    the aligner sketch editor (dialog)
 js/sim.js                       physics (incl. gyro drift + wheel slip), virtual clock, runs your code
 js/translate.js                 C++ -> JS translator
 js/paths.js                     jerry.io file parsing + speed profile
