@@ -1250,7 +1250,7 @@
     const row = (side, label) => {
       const list = c[side];
       const div = document.createElement('div');
-      div.className = 'wrow';
+      div.className = 'wrow wheels';
       div.innerHTML = `<span>${label}</span>` + list.map((t, i) => `<select data-i="${i}" aria-label="${label} position ${i + 1} from the front">${opts(t)}</select>`).join('');
       div.querySelectorAll('select').forEach((sel) => sel.addEventListener('change', () => {
         S.chassis[side][+sel.dataset.i] = sel.value;

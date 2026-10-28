@@ -115,6 +115,10 @@
           "name": "Changed",
           "items": [
             {
+              "text": "**Wider layout.** The field takes the left column at the largest size that fits the screen and the settings get all the rest, in columns that pack with no empty gaps, instead of a narrow strip. The wheel dropdowns sit in one row of four.",
+              "sub": []
+            },
+            {
               "text": "**Aligner sketch grid lines up with the drivetrain's edge.** The grid is anchored on the edge you are drawing on (the front edge for front aligners, the back edge for back ones), so that edge is a grid line and snapping (1, 0.5, 0.25 in) counts whole steps from it, instead of landing 0.25 or 0.5 in off a 15 in robot's edge. The rows are labelled with their real positions, the robot's centre lines are dotted, and the status line says how far past the edge the cursor is.",
               "sub": []
             },
