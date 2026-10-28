@@ -551,7 +551,7 @@
       html += `<label class="field"><span>Stock thickness (in)</span><input type="number" step="0.0625" min="0.05" max="1" data-set="thickness" value="${st.thickness}"></label>`;
       html += `<label class="field"><span>Aligned within (in)</span><input type="number" step="0.05" min="0" max="6" data-set="tol" value="${st.tol}"></label>`;
       html += `<label class="check"><input type="checkbox" data-set="auto"${st.auto ? ' checked' : ''}> alignment point = middle of the back of the aligners</label>`;
-      html += `<div class="pt"><label class="field"><span>Point x</span><input type="number" step="0.125" data-set="px" value="${r3(ap.x)}"${st.auto ? ' disabled' : ''}></label><label class="field"><span>Point y</span><input type="number" step="0.125" data-set="py" value="${r3(ap.y)}"${st.auto ? ' disabled' : ''}></label></div>`;
+      html += `<div class="pt"><label class="field"${st.auto ? ' data-why="Greyed out: the point is automatic. Untick the box above to place it by hand."' : ''}><span>Point x</span><input type="number" step="0.125" data-set="px" value="${r3(ap.x)}"${st.auto ? ' disabled' : ''}></label><label class="field"${st.auto ? ' data-why="Greyed out: the point is automatic."' : ''}><span>Point y</span><input type="number" step="0.125" data-set="py" value="${r3(ap.y)}"${st.auto ? ' disabled' : ''}></label></div>`;
       html += '<h3>Selected shape</h3>';
       if (!s) html += '<p class="note">Nothing selected. Pick the Select tool and click a shape.</p>';
       else if (s.type === 'line') {

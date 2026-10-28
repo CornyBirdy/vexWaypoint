@@ -10,6 +10,18 @@
           "name": "Added",
           "items": [
             {
+              "text": "**Mix 11 W and 5.5 W motors.** *Motors per side* is now two boxes, *11 W motors per side* and *5.5 W motors per side*, so a 55 W drive (two 11 W + one 5.5 W a side, 27.5 W) works. The motors are geared to give the wheel RPM when unloaded, and the 5.5 W motor has its own figures (0.5 N m stall at about 200 rpm), so it comes out at about 48% of an 11 W motor, not exactly half; the readout says so. The current figures for both are under *Motor current figures*. Settings saved with the old single motor type carry over.",
+              "sub": []
+            },
+            {
+              "text": "**Settings tabs.** The settings are now in tabs (Robot, Aligners and errors, Paths, Code, Everything) and the sections of a tab sit in two columns on a wide screen, instead of one long narrow column on the right. The chosen tab is remembered.",
+              "sub": []
+            },
+            {
+              "text": "**Reasons for greyed-out controls.** A control that is switched off now says why underneath (for example the second forward tracking wheel needs the forward one ticked, the cartridge is only for 11 W motors, the speed boxes are worked out from the motors, a side needs at least 2 wheels).",
+              "sub": []
+            },
+            {
               "text": "**Motors and weight.** Enter the motor wattage (11 W or 5.5 W), stall / free / limit current, motors per side, cartridge, robot weight (kg or lb) and the sim works out the **real-life speed** and the **motor response** itself (the two boxes are filled in and locked). It is a DC motor model with a current limit, the gearing from the wheel RPM, rolling resistance from your wheel types, and the robot's mass: a heavier robot or fewer motors accelerate slower, six 11 W blue-cartridge motors on a 5.5 kg robot reach about 94% of the ideal speed. Untick it to type the numbers in as before. The current figures are typical (VEX publishes the stall torque and the 2.5 A limit; the true stall and free current come from a community fit).",
               "sub": []
             },
@@ -102,6 +114,14 @@
         {
           "name": "Changed",
           "items": [
+            {
+              "text": "The header says **WAYPOINT** in the logo's own lettering (it is cut from the logo and takes the theme colours).",
+              "sub": []
+            },
+            {
+              "text": "The page uses the whole width: the field and the settings share it, up to 1900 px.",
+              "sub": []
+            },
             {
               "text": "The example auton now uses field coordinates (`chassis.setPose(-58, -58, 0)`, then field positions), as real LemLib code does, and the default start pose is (-58, -58) so the robot can turn in place at the wall (the walls are now at 70.25 in).",
               "sub": []

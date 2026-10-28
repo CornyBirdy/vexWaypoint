@@ -16,6 +16,7 @@
 <meta name="color-scheme" content="dark light">
 <link rel="stylesheet" href="css/tokens.css">
 <link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/brand.css">
 <script src="js/theme.js"></script>
 </head>
 <body>
@@ -25,7 +26,7 @@
   try { if (!sessionStorage.getItem('waypointSplash')) { document.getElementById('splash').hidden = false; sessionStorage.setItem('waypointSplash', '1'); } } catch (e) { /* no storage: no splash */ }
 </script>
 <header class="bar">
-  <h1>Waypoint</h1>
+  <h1 class="brand"><span class="sr-only">Waypoint</span></h1>
   <span class="grow"></span>
   <label class="check"><input type="checkbox" id="autoRun" checked> re-run on change</label>
   <button id="btnChangelog" class="btn" type="button" title="What changed in each update">Changelog<span class="dot" id="changelogDot" hidden></span></button>
@@ -101,7 +102,15 @@
   </section>
 
   <aside class="panel">
-    <details class="sec" open>
+    <nav class="tabs" id="tabs" role="tablist" aria-label="Settings">
+      <button class="tab on" type="button" role="tab" data-tab="setup">Robot</button>
+      <button class="tab" type="button" role="tab" data-tab="aligners">Aligners and errors</button>
+      <button class="tab" type="button" role="tab" data-tab="paths">Paths</button>
+      <button class="tab" type="button" role="tab" data-tab="code">Code</button>
+      <button class="tab" type="button" role="tab" data-tab="all">Everything</button>
+    </nav>
+    <div class="panes" id="panes">
+    <details class="sec" data-tab="setup" open>
       <summary>Start pose</summary>
       <div class="props" id="formStart"></div>
       <label class="check realtoggle"><input type="checkbox" id="startFromCode"> take the start pose from <code>setPose()</code> in the code</label>
@@ -109,21 +118,23 @@
       <p class="note">Code 0, 0, 0 is this pose. +y is the robot's forward, +x its right. Drag the dashed robot on the field to move it, the handle to turn it.</p>
     </details>
 
-    <details class="sec" open>
+    <details class="sec" data-tab="setup" open>
       <summary>Drivetrain <span class="aside" id="topSpeed"></span></summary>
       <div class="props" id="formDrive"></div>
       <h3>Motors and weight</h3>
       <label class="check realtoggle"><input type="checkbox" id="motorAuto"> work out the real-life speed and motor response from the motors</label>
       <div class="props" id="formMotor"></div>
       <div class="props">
-        <label class="field"><span>Cartridge</span><select id="motorCartridge"><option value="100">100 rpm (red)</option><option value="200">200 rpm (green)</option><option value="600">600 rpm (blue)</option></select></label>
+        <label class="field"><span>Cartridge (11 W motors)</span><select id="motorCartridge"><option value="100">100 rpm (red)</option><option value="200">200 rpm (green)</option><option value="600">600 rpm (blue)</option></select></label>
         <label class="field"><span>Weight unit</span><select id="motorUnit"><option value="kg">kg</option><option value="lb">lb</option></select></label>
       </div>
+      <details class="sub"><summary>Motor current figures</summary><div class="props" id="formMotorCur"></div>
+        <p class="note">Typical figures, not measured on your motors: VEX publishes the stall torque (2.1 N m for the 11 W motor on the 100 rpm cartridge, 0.5 N m for the 5.5 W motor) and the 2.5 A limit; the true stall and free current (about 4.7 A and 0.14 A for the 11 W motor) come from a community fit on the VEX Forum. The 5.5 W motor is not exactly half of an 11 W one, so it has its own figures.</p></details>
       <p class="note" id="motorInfo"></p>
-      <p class="note">The wheel RPM above is the wheel's ideal speed (cartridge x gearing). With this on, the speed and response are worked out from the motors' torque, the current limit, the gearing, the weight and the rolling resistance of your wheels, and the two boxes above show the result. The 11 W and 5.5 W current numbers are typical figures (VEX publishes the stall torque and the 2.5 A limit; the true stall and free current come from a community fit), not measured on your motors.</p>
+      <p class="note">The wheel RPM above is the wheel's ideal speed (cartridge x gearing). With this on, the speed and response are worked out from the motors' torque, the current limit, the gearing, the weight and the rolling resistance of your wheels, and the two boxes above show the result. Mix 11 W and 5.5 W motors per side to match your drive (two 11 W and one 5.5 W a side is a 55 W drive, 27.5 W a side).</p>
     </details>
 
-    <details class="sec" open>
+    <details class="sec" data-tab="setup" open>
       <summary>Chassis <span class="aside">wheels + tracking wheels</span></summary>
       <canvas id="chassisCanvas" class="chassiscv" aria-label="Top-down drawing of the chassis on an inch grid"></canvas>
       <div id="chassisControls" class="chassisctl"></div>
@@ -131,7 +142,7 @@
       <p class="note">Front of the robot is up. Click a wheel in the drawing to switch it between omni and traction. Wheel size is the wheel diameter above; the robot length and track width set where the wheels sit.</p>
     </details>
 
-    <details class="sec" open>
+    <details class="sec" data-tab="aligners" open>
       <summary>Goal aligners <span class="aside">hit the goals</span></summary>
       <label class="check realtoggle"><input type="checkbox" id="solidGoals"> goals and walls are solid (the robot hits them)</label>
       <div id="alignSummary" class="aligns"></div>
@@ -144,13 +155,13 @@
       <p class="note">The goals are screwed to the field, so they never move: the robot (its body and its aligners) is stopped by them, slides along them with friction and is turned by them. A goal counts as aligned when any surface of it is within the aligner's tolerance of the aligner's alignment point. With real-life error on, the aligners grip a little harder and vary from run to run, so aligning is slightly less certain than in a perfect sim. The goal footprint is a square with cut-off corners, measured off the field picture (about 5.65 in across, corners cut by 1 in); you can change it here.</p>
     </details>
 
-    <details class="sec" open>
+    <details class="sec" data-tab="aligners" open>
       <summary>Real-life error <span class="aside">gyro drift + wheel slip</span></summary>
       <label class="check realtoggle"><input type="checkbox" id="realOn"> simulate real-life error</label>
       <p class="note">On: every Run gives the robot a new random draw (its gyro has a bias, a turn-rate error and noise; the floor grip changes a little), so results vary from run to run like on a real field. How big the errors are comes from the Chassis above: traction wheels grip and slide less, tracking wheels keep the odometry right when the drive wheels slip. Changing a setting re-runs with the same draw. The odometry only sees the wheels and the gyro, so it slowly disagrees with where the robot really is. <code>setPose()</code> resets it, like a wall reset. Off: a perfect robot.</p>
     </details>
 
-    <details class="sec" open>
+    <details class="sec" data-tab="paths" open>
       <summary>Paths</summary>
       <div class="dropzone" id="drop">
         <input type="file" id="fileInput" multiple>
@@ -173,7 +184,7 @@
       <p class="note" id="pathModeNote"></p>
     </details>
 
-    <details class="sec" id="pathProps" open hidden>
+    <details class="sec" id="pathProps" data-tab="paths" open hidden>
       <summary>Selected path</summary>
       <div class="props">
         <label class="field"><span>Name</span><input id="pName" type="text" maxlength="40"></label>
@@ -187,7 +198,7 @@
       <p class="note">Speeds use LemLib v0.4 units (0-127). Slower where the path bends more, and never faster than the robot could stop from.</p>
     </details>
 
-    <details class="sec" open>
+    <details class="sec" data-tab="code" open>
       <summary>Code</summary>
       <div class="props">
         <label class="field"><span>Language</span>
@@ -206,11 +217,13 @@
       <p class="note">Drivetrain only. Calls on other objects (intake, lift, clamp...) are ignored.</p>
     </details>
 
-    <details class="sec">
+    <details class="sec" data-tab="code">
       <summary>LemLib controllers</summary>
       <h3>Lateral</h3><div class="props" id="formLat"></div>
       <h3>Angular</h3><div class="props" id="formAng"></div>
     </details>
+
+    </div>
 
     <div class="actions end">
       <button id="btnReset" class="btn" type="button">Reset settings</button>

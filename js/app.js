@@ -51,12 +51,17 @@
       ['cfg.mechanismWait', 'Lift / claw wait (ms, 0 = none)', 50, 0, 5000],
     ],
     formMotor: [
-      ['robot.motor.perSide', 'Motors per side', 1, 1, 8],
-      ['robot.motor.watts', 'Motor wattage (W)', 5.5, 1, 30],
-      ['robot.motor.stallA', 'Stall current (A)', 0.1, 0.2, 30],
-      ['robot.motor.freeA', 'Free current (A)', 0.01, 0, 5],
-      ['robot.motor.limitA', 'Current limit (A)', 0.1, 0.2, 30],
+      ['robot.motor.n11', '11 W motors per side', 1, 0, 8],
+      ['robot.motor.n55', '5.5 W motors per side', 1, 0, 8],
       ['robot.motor.weight', 'Robot weight', 0.1, 0.5, 60],
+    ],
+    formMotorCur: [
+      ['robot.motor.cur11.stallA', '11 W: stall current (A)', 0.1, 0.2, 30],
+      ['robot.motor.cur11.freeA', '11 W: free current (A)', 0.01, 0, 5],
+      ['robot.motor.cur11.limitA', '11 W: current limit (A)', 0.1, 0.2, 30],
+      ['robot.motor.cur55.stallA', '5.5 W: stall current (A)', 0.1, 0.2, 30],
+      ['robot.motor.cur55.freeA', '5.5 W: free current (A)', 0.01, 0, 5],
+      ['robot.motor.cur55.limitA', '5.5 W: current limit (A)', 0.1, 0.2, 30],
     ],
     formGoals: [
       ['goals.tall', 'Tall goal (centre)', 0.1, 2, 12],
@@ -119,11 +124,6 @@
           const n = parseFloat(inp.value);
           if (!isFinite(n)) return;
           setp(S, key, n);
-          // a different wattage brings its typical current figures with it
-          if (key === 'robot.motor.watts') {
-            S.robot.motor = V.motorForWatts(S.robot.motor, n);
-            pushMotorFields();
-          }
           settingsChanged();
         });
         wrap.append(span, inp);
@@ -406,11 +406,14 @@
   }
 
   let debounce = 0;
-  /** the motor boxes show the typed values, the readout and the two derived inputs follow the motors */
-  function pushMotorFields() {
-    document.querySelectorAll('#formMotor input[data-key]').forEach((inp) => {
-      if (document.activeElement !== inp) inp.value = getp(S, inp.dataset.key);
-    });
+  /** why a control is greyed out, shown under it (and as a tooltip); '' clears it */
+  function why(el, text) {
+    if (!el) return;
+    el.title = text || '';
+    const lab = el.closest('label');
+    if (!lab) return;
+    if (text) lab.dataset.why = text;
+    else delete lab.dataset.why;
   }
 
   function updateMotorUi() {
@@ -419,7 +422,8 @@
     const m = S.robot.motor;
     $('motorAuto').checked = m.auto;
     $('motorCartridge').value = String(m.cartridge);
-    $('motorCartridge').disabled = m.watts <= 5.5;
+    $('motorCartridge').disabled = m.n11 === 0;
+    why($('motorCartridge'), m.n11 === 0 ? 'Only for the 11 W motors, and there are none. A 5.5 W motor is fixed at about 200 rpm.' : '');
     $('motorUnit').value = m.unit;
     const speed = document.querySelector('[data-key="robot.speedPct"]');
     const resp = document.querySelector('[data-key="robot.responseMs"]');
@@ -430,7 +434,11 @@
       if (speed && document.activeElement !== speed) speed.value = S.robot.speedPct;
       if (resp && document.activeElement !== resp) resp.value = S.robot.responseMs;
     }
-    [speed, resp].forEach((i) => i && (i.disabled = m.auto));
+    [speed, resp].forEach((i) => {
+      if (!i) return;
+      i.disabled = m.auto;
+      why(i, m.auto ? 'Worked out from the motors and the weight. Untick "work out the real-life speed" above to type it in.' : '');
+    });
     $('motorInfo').textContent = m.auto ? V.describeMotors(S.robot, S.chassis) : 'Off: the real-life speed and motor response typed above are used.';
   }
 
@@ -937,6 +945,7 @@
     renderChassisUi();
     initChangelog();
     initTune();
+    initTabs();
     $('startFromCode').addEventListener('change', (e) => {
       S.cfg.startFromCode = e.target.checked;
       if (!e.target.checked) $('startNote').hidden = true;
@@ -1157,6 +1166,26 @@
     $('tuneOut').hidden = false;
   }
 
+  // ------------------------------------------------------------------ settings tabs
+
+  function initTabs() {
+    const bar = $('tabs');
+    if (!bar) return;
+    const tabs = Array.from(bar.querySelectorAll('.tab'));
+    const show = (name) => {
+      tabs.forEach((t) => {
+        t.classList.toggle('on', t.dataset.tab === name);
+        t.setAttribute('aria-selected', String(t.dataset.tab === name));
+      });
+      document.querySelectorAll('#panes > .sec[data-tab]').forEach((sec) => sec.classList.toggle('off-tab', name !== 'all' && sec.dataset.tab !== name));
+      try { localStorage.setItem('waypointTab', name); } catch (e) { /* storage blocked */ }
+    };
+    tabs.forEach((t) => t.addEventListener('click', () => show(t.dataset.tab)));
+    let saved = 'setup';
+    try { saved = localStorage.getItem('waypointTab') || 'setup'; } catch (e) { /* storage blocked */ }
+    show(tabs.some((t) => t.dataset.tab === saved) ? saved : 'setup');
+  }
+
   // ------------------------------------------------------------------ chassis
 
   function drawChassis() {
@@ -1199,6 +1228,15 @@
         change();
       });
       host.appendChild(div);
+      const limits = [];
+      if (list.length <= 2) limits.push('A side needs at least 2 wheels, so the \u2212 button is off.');
+      if (list.length >= V.MAX_WHEELS_PER_SIDE) limits.push(`At most ${V.MAX_WHEELS_PER_SIDE} wheels a side, so the + button is off.`);
+      if (limits.length) {
+        const n = document.createElement('p');
+        n.className = 'whynote';
+        n.textContent = limits.join(' ');
+        host.appendChild(n);
+      }
     };
     row('left', c.mirror ? 'Wheels, each side' : 'Left wheels');
     if (!c.mirror) row('right', 'Right wheels');
@@ -1230,11 +1268,18 @@
         settingsChanged();
       });
       host.appendChild(div);
+      if (!t.on) {
+        const n = document.createElement('p');
+        n.className = 'whynote';
+        n.textContent = `The ${k === 'vertical' ? 'sideways offset' : 'forward offset'} box is off until you tick this wheel.`;
+        host.appendChild(n);
+      }
     });
     const extra = document.createElement('div');
     extra.className = 'wrow';
     extra.innerHTML = `<label class="check"><input type="checkbox" data-k="imu"${c.imu ? ' checked' : ''}> IMU (inertial sensor) for heading</label>` +
       `<label class="check"><input type="checkbox" data-k="second"${c.tracking.second ? ' checked' : ''}${c.tracking.vertical.on ? '' : ' disabled'}> second forward tracking wheel (other side)</label>`;
+    if (!c.tracking.vertical.on) why(extra.querySelector('[data-k=second]'), 'Greyed out because it needs the forward tracking wheel above: tick that first.');
     extra.querySelector('[data-k=imu]').addEventListener('change', (e) => {
       S.chassis.imu = e.target.checked;
       change();

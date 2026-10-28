@@ -783,18 +783,34 @@ const angDiff = (a, b) => Math.abs(normDeg(a - b));
     const d = V.motorModel(base);
     assert(d.speedPct > 80 && d.speedPct <= 100, 'a normal drive reaches most of the ideal speed: ' + d.speedPct);
     assert(d.respMs > 40 && d.respMs < 300, 'and gets there in a normal time: ' + d.respMs);
-    assert(V.motorModel(withMotor({ perSide: 4 })).respMs < d.respMs, 'more motors accelerate faster');
-    assert(V.motorModel(withMotor({ perSide: 2 })).respMs > d.respMs, 'fewer motors accelerate slower');
+    assert(V.motorModel(withMotor({ n11: 4 })).respMs < d.respMs, 'more motors accelerate faster');
+    assert(V.motorModel(withMotor({ n11: 2 })).respMs > d.respMs, 'fewer motors accelerate slower');
     assert(V.motorModel(withMotor({ weight: 9 })).respMs > d.respMs, 'a heavier robot accelerates slower');
     assert(V.motorModel(withMotor({ weight: 20, unit: 'lb' })).respMs > d.respMs, 'the weight can be in lb (20 lb = 9.1 kg)');
     near(V.motorModel(withMotor({ weight: 11.0231, unit: 'lb' })).respMs, V.motorModel(withMotor({ weight: 5, unit: 'kg' })).respMs, 1, 'lb and kg agree');
     assert(V.motorModel(withMotor({ volts: 10.5 })).speedPct < d.speedPct - 3, 'a flat battery is slower');
     assert(V.motorModel(withMotor({ volts: 12 })).speedPct > d.speedPct, 'a full one is quicker');
-    const half = V.motorForWatts(base.motor, 5.5);
-    assert.strictEqual(half.cartridge, 200, 'the 5.5 W motor is a fixed 200 rpm');
-    assert(half.limitA < base.motor.limitA && half.stallA < base.motor.stallA, 'and draws half the current');
-    assert(V.motorModel({ ...base, motor: half }).respMs > d.respMs, 'six 5.5 W motors accelerate slower than six 11 W ones');
-    assert(V.motorModel(withMotor({ limitA: 1 })).respMs > d.respMs, 'a lower current limit means less torque');
+
+    // 11 W and 5.5 W motors can be mixed per side: two 11 W + one 5.5 W is the 55 W drive (27.5 W a side)
+    const mix = V.motorModel(withMotor({ n11: 2, n55: 1 }));
+    near(mix.watts, 55, 1e-9, 'a 55 W drive');
+    near(mix.wattsPerSide, 27.5, 1e-9, '27.5 W a side');
+    const two = V.motorModel(withMotor({ n11: 2, n55: 0 }));
+    const three = V.motorModel(withMotor({ n11: 3, n55: 0 }));
+    assert(mix.respMs < two.respMs && mix.respMs > three.respMs, `2.5 motors sit between 2 and 3: ${two.respMs} / ${mix.respMs} / ${three.respMs} ms`);
+    assert(mix.pushForce > two.pushForce && mix.pushForce < three.pushForce, 'and push between them');
+    // a 5.5 W motor is not exactly half an 11 W one
+    const half = V.halfPowerRatio();
+    assert(half.stall > 0.4 && half.stall < 0.5 && Math.abs(half.stall - 0.5) > 0.005, 'the 5.5 W motor stalls at under half the torque: ' + half.stall);
+    assert(half.running > 0.3 && half.running < 0.5, 'and gives under half while running: ' + half.running);
+    assert(V.motorModel(withMotor({ n11: 0, n55: 6 })).respMs > V.motorModel(withMotor({ n11: 3, n55: 0 })).respMs, 'six 5.5 W motors (33 W a side) accelerate slower than three 11 W ones');
+    assert(V.motorModel(withMotor({ n11: 0, n55: 6 })).watts === 66);
+    assert(V.motorModel(withMotor({ n11: 0, n55: 0 })).watts === 22, 'at least one motor is kept');
+    // settings saved by the old form (one type, perSide) carry over
+    assert.deepStrictEqual([V.sanitizeMotor({ perSide: 4, watts: 11 }).n11, V.sanitizeMotor({ perSide: 4, watts: 11 }).n55], [4, 0]);
+    assert.deepStrictEqual([V.sanitizeMotor({ perSide: 4, watts: 5.5 }).n11, V.sanitizeMotor({ perSide: 4, watts: 5.5 }).n55], [0, 4]);
+    assert(/55 W drive/.test(V.describeMotors({ ...base, motor: V.sanitizeMotor({ n11: 2, n55: 1 }) })) && /a bit less than half/.test(V.describeMotors({ ...base, motor: V.sanitizeMotor({ n11: 2, n55: 1 }) })));
+    assert(V.motorModel(withMotor({ cur11: { limitA: 1 } })).respMs > d.respMs, 'a lower current limit means less torque');
     assert(V.motorModel(base, { left: ['traction', 'traction'], mirror: true }).speedPct < V.motorModel(base, { left: ['omni', 'omni'], mirror: true }).speedPct, 'traction wheels roll harder than omnis');
     assert(/motors/.test(V.describeMotors(base)) && /% of the wheel/.test(V.describeMotors(base)));
 

@@ -145,8 +145,8 @@ select { background: var(--surface-raised); }
 
 /* layout */
 .layout {
-  display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: var(--s-3);
-  padding: var(--s-3); max-width: 1440px; margin: 0 auto; align-items: start;
+  display: grid; grid-template-columns: minmax(380px, 1fr) minmax(420px, 0.95fr); gap: var(--s-4);
+  padding: var(--s-3) var(--s-4); max-width: 1900px; margin: 0 auto; align-items: start;
 }
 .stage { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; align-items: center; }
 .stage > * { width: min(100%, calc(100vh - 250px)); min-width: 300px; }
@@ -154,6 +154,30 @@ select { background: var(--surface-raised); }
 .canvas-wrap { aspect-ratio: 1; border: 1px solid var(--hairline); border-radius: var(--r-sm); overflow: hidden; background: var(--art-bg); }
 .canvas-wrap canvas { width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
 .panel { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; }
+/* the settings are in tabs; on a wide screen the sections of a tab sit in two columns */
+.tabs { display: flex; flex-wrap: wrap; gap: var(--s-1); position: sticky; top: 0; z-index: 5; padding: var(--s-1) 0 var(--s-2); background: var(--ground); }
+.tab {
+  appearance: none; min-height: var(--control-h); padding: 0 var(--s-3); border: 1px solid var(--hairline); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--ink-muted); font: inherit; font-weight: 600; cursor: pointer;
+}
+.tab:hover { color: var(--ink); }
+.tab.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.panes { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: var(--s-3); align-items: start; }
+.panes > .sec.off-tab { display: none; }
+details.sub { border: 1px solid var(--hairline); border-radius: var(--r-sm); background: var(--surface-raised); }
+details.sub > summary { cursor: pointer; padding: var(--s-1) var(--s-3); color: var(--ink-muted); font-weight: 600; font-size: 12px; }
+details.sub[open] > summary { border-bottom: 1px solid var(--hairline); }
+details.sub > *:not(summary) { margin: var(--s-2) var(--s-3); }
+
+/* why a control is greyed out */
+input:disabled, select:disabled, button:disabled { opacity: .5; cursor: not-allowed; }
+.field[data-why]::after, .check[data-why]::after, .whynote {
+  display: block; font-size: 11.5px; line-height: 1.35; color: var(--ink-muted); font-weight: 400;
+}
+.field[data-why]::after { content: attr(data-why); grid-column: 1 / -1; }
+.check[data-why] { flex-wrap: wrap; }
+.check[data-why]::after { content: attr(data-why); flex-basis: 100%; padding-left: 24px; }
+.whynote { margin: 0; }
 
 .transport { display: flex; gap: var(--s-2); align-items: center; }
 .transport input[type=range] { flex: 1; min-width: 0; }
@@ -237,8 +261,13 @@ ul.paths:empty::after { content: "none loaded"; color: var(--ink-muted); }
 .log .error { color: var(--danger); }
 .log .info { color: var(--success); }
 
+@media (max-width: 1100px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .stage > * { width: min(100%, 720px); }
+}
 @media (max-width: 900px) {
   .layout { grid-template-columns: minmax(0, 1fr); padding: var(--s-2); }
+  .panes { grid-template-columns: minmax(0, 1fr); }
   .stage > * { width: 100%; min-width: 0; }
 }
 
