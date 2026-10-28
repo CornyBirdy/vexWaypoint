@@ -6,7 +6,12 @@ grouped by date.
 
 ## Unreleased
 
+### Removed
+- The "drawn" field picture. Only the match and skills pictures remain (a saved "drawn" setting becomes match).
+
 ### Fixed
+- Switching the field picture between match and skills could show the "drawn" field for a few seconds while
+  the picture loaded. Both pictures now load at start-up, and the old one stays up until the new one is ready.
 - `chassis.setPose(lemlib::Pose(...))`, `setPose(pose)` and `setPose({x, y, theta})` crashed the run or gave
   `NaN`; the radians flag of `setPose(x, y, rad, true)` was ignored.
 
@@ -38,6 +43,8 @@ grouped by date.
 - `setPose()` accepts every spelling: `setPose(x, y, theta)`, `setPose(x, y, rad, true)`,
   `setPose(lemlib::Pose(x, y, theta))`, `setPose(lemlib::Pose{x, y, theta})`, `setPose({x, y, theta})` and
   `setPose(pose)`. `Pose p{x, y, theta};` declarations are understood. `getPose(radians, standardPosition)` works.
+- The **Waypoint logo**: a banner at the top of the README, a start-up splash (shown once per browser session,
+  click to skip) and a link-preview image.
 - This changelog.
 
 ### Changed

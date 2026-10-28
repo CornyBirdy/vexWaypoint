@@ -2,26 +2,18 @@
 (function () {
   'use strict';
   const NS = (globalThis.VSim = globalThis.VSim || {});
-  const F = NS.FIELD;
 
   const VIEW = 160; // inches shown: the field plus a border
-  const WALL = 2.6; // perimeter band thickness
 
   // colours come from the CSS tokens (css/tokens.css); reloaded whenever the theme changes
   const C = {};
   const TOKENS = {
-    bg: 'art-bg', wall: 'art-wall', wallEdge: 'art-wall-edge', tileA: 'art-tile-a', tileB: 'art-tile-b',
-    seam: 'art-seam', tape: 'art-tape', red: 'art-red', blue: 'art-blue', yellow: 'art-yellow',
-    pinYellow: 'art-pin-yellow', pinRed: 'art-pin-red', pinBlue: 'art-pin-blue', cupWhite: 'art-cup-white',
-    cupGray: 'art-cup-gray', ink: 'art-ink', goalBlack: 'art-goal-black', goalRed: 'art-goal-red',
-    goalBlue: 'art-goal-blue', goalRim: 'art-goal-rim', goalHub: 'art-goal-hub', goalHole: 'art-goal-hole',
-    mount: 'art-mount', shade: 'art-shade', shadeSoft: 'art-shade-soft',
+    bg: 'art-bg',
     robot: 'ov-robot', robotEdge: 'ov-robot-edge', hit: 'ov-hit', trail: 'ov-trail', guide: 'ov-guide',
     axisX: 'ov-axis-x', axisY: 'ov-axis-y', label: 'ov-label', curve: 'ov-curve', curveSel: 'ov-curve-sel',
     handleLine: 'ov-handle-line', point: 'ov-point', pointEdge: 'ov-point-edge', pointLocked: 'ov-point-locked',
     ghostFill: 'ov-ghost-fill', ghostEdge: 'ov-ghost-edge', odom: 'ov-odom',
   };
-  const hex = {};
   let paletteVersion = -1;
   function loadPalette() {
     const T = NS.theme;
@@ -29,9 +21,6 @@
     paletteVersion = T.version;
     Object.keys(TOKENS).forEach((k) => (C[k] = T.color(TOKENS[k])));
     C.mono = T.color('mono');
-    hex.red = C.pinRed;
-    hex.blue = C.pinBlue;
-    hex.yellow = C.yellow;
   }
 
 
@@ -47,9 +36,17 @@
       this.w = 700;
       this.h = 700;
       this.dpr = 1;
-      this.style = 'photo-match'; // 'photo-match' | 'photo-skills' | 'drawn'
-      this.images = {};
+      this.style = 'photo-match'; // 'photo-match' | 'photo-skills'
       this.onImageLoad = null;
+      // both field pictures load up front, so switching between them never shows an empty field
+      this.images = {};
+      Object.keys(PHOTOS).forEach((key) => {
+        const img = new Image();
+        img.onload = () => this.onImageLoad && this.onImageLoad();
+        img.src = PHOTOS[key];
+        this.images[key] = img;
+      });
+      this.shown = null; // the last picture that was ready to draw
       this.logo = new Image();
       this.logo.onload = () => this.onImageLoad && this.onImageLoad();
       this.logo.src = LOGO.src;
@@ -57,14 +54,7 @@
     }
 
     setFieldStyle(style) {
-      this.style = style;
-      const key = style === 'photo-skills' ? 'skills' : style === 'photo-match' ? 'match' : null;
-      if (key && !this.images[key]) {
-        const img = new Image();
-        img.onload = () => this.onImageLoad && this.onImageLoad();
-        img.src = PHOTOS[key];
-        this.images[key] = img;
-      }
+      this.style = style === 'photo-skills' ? 'photo-skills' : 'photo-match';
     }
 
     resize() {
@@ -96,14 +86,6 @@
       ctx.fillRect(0, 0, this.w, this.h);
       const photo = this.photo();
       if (photo) this.drawPhoto(ctx, photo);
-      else {
-        this.drawField(ctx);
-        this.drawMarkings(ctx);
-        this.drawLoaders(ctx);
-        this.drawElements(ctx);
-        this.drawGoals(ctx);
-        this.drawToggles(ctx);
-      }
       if (s.paths) this.drawPaths(ctx, s.paths);
       if (s.edit) this.drawEdit(ctx, s.edit);
       if (s.followPath) this.drawPolyline(ctx, s.followPath, C.guide, 2.5, false);
@@ -129,11 +111,11 @@
 
     // ---------------------------------------------------------- field
 
-    /** the loaded photo for the current style, or null while it loads / when drawing the field */
+    /** the picture for the current style; while it is still loading, the one that was showing before */
     photo() {
-      const key = this.style === 'photo-skills' ? 'skills' : this.style === 'photo-match' ? 'match' : null;
-      const img = key && this.images[key];
-      return img && img.complete && img.naturalWidth ? img : null;
+      const img = this.images[this.style === 'photo-skills' ? 'skills' : 'match'];
+      if (img.complete && img.naturalWidth) this.shown = img;
+      return this.shown;
     }
 
     drawPhoto(ctx, img) {
@@ -142,272 +124,6 @@
       const size = PHOTO_HALF * 2 * this.scale;
       ctx.drawImage(img, x0, y0, size, size);
     }
-
-    drawField(ctx) {
-      const S = this.scale;
-      const H = F.HALF;
-      const x0 = this.wx(-H);
-      const y0 = this.wy(H);
-      const size = H * 2 * S;
-      ctx.fillStyle = C.wallEdge;
-      ctx.fillRect(x0 - (WALL + 0.3) * S, y0 - (WALL + 0.3) * S, size + (WALL + 0.3) * 2 * S, size + (WALL + 0.3) * 2 * S);
-      ctx.fillStyle = C.wall;
-      ctx.fillRect(x0 - WALL * S, y0 - WALL * S, size + WALL * 2 * S, size + WALL * 2 * S);
-      for (let i = 0; i < 6; i++) {
-        for (let j = 0; j < 6; j++) {
-          ctx.fillStyle = (i + j) % 2 ? C.tileB : C.tileA;
-          ctx.fillRect(x0 + i * F.TILE * S, y0 + j * F.TILE * S, F.TILE * S + 0.5, F.TILE * S + 0.5);
-        }
-      }
-      ctx.strokeStyle = C.seam;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      for (let k = 1; k < 6; k++) {
-        ctx.moveTo(x0 + k * F.TILE * S, y0);
-        ctx.lineTo(x0 + k * F.TILE * S, y0 + size);
-        ctx.moveTo(x0, y0 + k * F.TILE * S);
-        ctx.lineTo(x0 + size, y0 + k * F.TILE * S);
-      }
-      ctx.stroke();
-    }
-
-    line(ctx, x1, y1, x2, y2, color, width) {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = width * this.scale;
-      ctx.lineCap = 'butt';
-      ctx.beginPath();
-      ctx.moveTo(this.wx(x1), this.wy(y1));
-      ctx.lineTo(this.wx(x2), this.wy(y2));
-      ctx.stroke();
-    }
-
-    drawMarkings(ctx) {
-      const H = F.HALF;
-      // corner boxes (red left, blue right)
-      [-1, 1].forEach((sx) => {
-        const color = sx < 0 ? C.red : C.blue;
-        [-1, 1].forEach((sy) => {
-          this.line(ctx, sx * F.BOX.x, sy * H, sx * F.BOX.x, sy * F.BOX.y, color, 0.85);
-          this.line(ctx, sx * H, sy * F.BOX.y, sx * (F.BOX.x + 0.43), sy * F.BOX.y, color, 0.85);
-        });
-      });
-      // centre diamond
-      const r = F.DIAMOND_R;
-      [[0, r, r, 0], [r, 0, 0, -r], [0, -r, -r, 0], [-r, 0, 0, r]].forEach((l) => this.line(ctx, l[0], l[1], l[2], l[3], C.tape, 0.9));
-      // diagonals: TL-BR is a double line, TR-BL a single line
-      const a = F.DIAGONAL_FROM;
-      const b = F.DIAGONAL_TO;
-      const d = F.DIAGONAL_GAP / 2 / Math.SQRT2;
-      [[-1, 1], [1, -1]].forEach(([sx, sy]) => {
-        this.line(ctx, sx * a + d, sy * a + d, sx * b + d, sy * b + d, C.tape, 0.9);
-        this.line(ctx, sx * a - d, sy * a - d, sx * b - d, sy * b - d, C.tape, 0.9);
-      });
-      [[1, 1], [-1, -1]].forEach(([sx, sy]) => this.line(ctx, sx * a, sy * a, sx * b, sy * b, C.tape, 0.9));
-    }
-
-    // ---------------------------------------------------------- elements
-
-    drawElements(ctx) {
-      const E = F.ELEMENTS;
-      E.filter((e) => e.type === 'arm').forEach((e) => this.drawArm(ctx, e));
-      E.filter((e) => e.type === 'cup').forEach((e) => this.drawCup(ctx, e));
-      E.filter((e) => e.type === 'pin').forEach((e) => this.drawPin(ctx, e));
-    }
-
-    drawCup(ctx, e) {
-      const S = this.scale;
-      const x = this.wx(e.x);
-      const y = this.wy(e.y);
-      const r = 1.6 * S;
-      const col = (c) => (c === 'white' ? C.cupWhite : C.cupGray);
-      ctx.beginPath();
-      ctx.arc(x, y, r, Math.PI, 0);
-      ctx.closePath();
-      ctx.fillStyle = col(e.top);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI);
-      ctx.closePath();
-      ctx.fillStyle = col(e.top === 'white' ? 'gray' : 'white');
-      ctx.fill();
-      ctx.strokeStyle = C.ink;
-      ctx.lineWidth = Math.max(1, 0.22 * S);
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.moveTo(x - r, y);
-      ctx.lineTo(x + r, y);
-      ctx.stroke();
-    }
-
-    hexPath(ctx, x, y, r) {
-      ctx.beginPath();
-      for (let i = 0; i < 6; i++) {
-        const a = -Math.PI / 2 + (i * Math.PI) / 3;
-        const px = x + Math.cos(a) * r;
-        const py = y + Math.sin(a) * r;
-        if (i) ctx.lineTo(px, py);
-        else ctx.moveTo(px, py);
-      }
-      ctx.closePath();
-    }
-
-    /** a standing pin seen from above: black-outlined hexagon split into two halves */
-    drawPin(ctx, e) {
-      const S = this.scale;
-      const x = this.wx(e.x);
-      const y = this.wy(e.y);
-      const r = 1.2 * S;
-      ctx.save();
-      this.hexPath(ctx, x, y, r);
-      ctx.clip();
-      ctx.fillStyle = hex[e.top] || C.yellow;
-      ctx.fillRect(x - r, y - r, r * 2, r);
-      ctx.fillStyle = hex[e.bottom] || C.yellow;
-      ctx.fillRect(x - r, y, r * 2, r);
-      ctx.restore();
-      ctx.strokeStyle = C.ink;
-      ctx.lineWidth = Math.max(1, 0.2 * S);
-      this.hexPath(ctx, x, y, r);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(x - r * 0.87, y);
-      ctx.lineTo(x + r * 0.87, y);
-      ctx.stroke();
-    }
-
-    /** a pin lying flat: slim yellow neck from the cup, flared coloured cap at the tip */
-    drawArm(ctx, e) {
-      const S = this.scale;
-      ctx.save();
-      ctx.translate(this.wx(e.x), this.wy(e.y));
-      ctx.rotate((e.deg * Math.PI) / 180);
-      const poly = (pts, fill) => {
-        ctx.beginPath();
-        pts.forEach((p, i) => (i ? ctx.lineTo(p[1] * S, -p[0] * S) : ctx.moveTo(p[1] * S, -p[0] * S)));
-        ctx.closePath();
-        ctx.fillStyle = fill;
-        ctx.fill();
-        ctx.strokeStyle = C.shade;
-        ctx.lineWidth = Math.max(1, 0.15 * S);
-        ctx.stroke();
-      };
-      // neck (distance from cup centre, half width)
-      poly([[1.4, -1.0], [1.4, 1.0], [4.5, 1.6], [4.5, -1.6]], C.pinYellow);
-      // cap: lip then cone narrowing to the tip
-      const cap = e.color === 'red' ? C.pinRed : C.pinBlue;
-      poly([[4.3, -1.9], [4.3, 1.9], [4.8, 1.9], [8.2, 1.2], [8.2, -1.2], [4.8, -1.9]], cap);
-      ctx.restore();
-    }
-
-    // ---------------------------------------------------------- goals, toggles, loaders
-
-    octagon(ctx, cx, cy, size, cut) {
-      const h = size / 2;
-      const c = size * cut;
-      const pts = [
-        [-h + c, -h], [h - c, -h], [h, -h + c], [h, h - c],
-        [h - c, h], [-h + c, h], [-h, h - c], [-h, -h + c],
-      ];
-      ctx.beginPath();
-      pts.forEach((p, i) => (i ? ctx.lineTo(cx + p[0], cy + p[1]) : ctx.moveTo(cx + p[0], cy + p[1])));
-      ctx.closePath();
-    }
-
-    drawGoals(ctx) {
-      const S = this.scale;
-      F.GOALS.forEach((g) => {
-        const cx = this.wx(g.x);
-        const cy = this.wy(g.y);
-        const size = F.GOAL_SIZE * S;
-        const neutral = g.team === 'neutral';
-        const body = g.team === 'red' ? C.goalRed : g.team === 'blue' ? C.goalBlue : C.goalBlack;
-        const rim = g.team === 'red' ? C.red : g.team === 'blue' ? C.blue : C.goalRim;
-        // soft shadow
-        this.octagon(ctx, cx + 0.4 * S, cy + 0.6 * S, size, 0.2);
-        ctx.fillStyle = C.shadeSoft;
-        ctx.fill();
-        this.octagon(ctx, cx, cy, size, 0.2);
-        ctx.fillStyle = body;
-        ctx.fill();
-        // raised inner octagon
-        this.octagon(ctx, cx, cy, size * 0.74, 0.28);
-        ctx.fillStyle = rim;
-        ctx.fill();
-        if (neutral) {
-          ctx.beginPath();
-          ctx.arc(cx, cy, size * 0.27, 0, Math.PI * 2);
-          ctx.fillStyle = C.goalHub;
-          ctx.fill();
-          this.drawPin(ctx, { x: g.x, y: g.y, top: 'yellow', bottom: 'yellow' });
-        } else {
-          ctx.beginPath();
-          ctx.arc(cx, cy, size * 0.27, 0, Math.PI * 2);
-          ctx.fillStyle = body;
-          ctx.fill();
-          ctx.beginPath();
-          ctx.arc(cx, cy, size * 0.16, 0, Math.PI * 2);
-          ctx.fillStyle = C.goalHole;
-          ctx.fill();
-        }
-        // AprilTag id
-        ctx.fillStyle = C.label;
-        ctx.font = `${Math.max(9, 2.6 * S)}px ${C.mono}`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(String(g.tag), cx + size * 0.36, cy - size * 0.33);
-        ctx.textAlign = 'start';
-        ctx.textBaseline = 'alphabetic';
-      });
-    }
-
-    drawToggles(ctx) {
-      const S = this.scale;
-      const len = 26.5 * S;
-      const th = 1.7 * S;
-      const edge = 0.4 * S;
-      F.TOGGLES.forEach((t) => {
-        const horizontal = t.wall === 'top' || t.wall === 'bottom';
-        const sign = t.wall === 'top' || t.wall === 'right' ? 1 : -1;
-        const c = F.HALF + 1.1;
-        const cx = this.wx(horizontal ? 0 : sign * c);
-        const cy = this.wy(horizontal ? sign * c : 0);
-        const w = horizontal ? len : th;
-        const h = horizontal ? th : len;
-        ctx.fillStyle = C.yellow;
-        ctx.fillRect(cx - w / 2, cy - h / 2, w, h);
-        ctx.fillStyle = t.edge === 'red' ? C.red : C.blue;
-        // coloured strip on the outer edge
-        if (t.wall === 'top') ctx.fillRect(cx - w / 2, cy - h / 2, w, edge);
-        if (t.wall === 'bottom') ctx.fillRect(cx - w / 2, cy + h / 2 - edge, w, edge);
-        if (t.wall === 'left') ctx.fillRect(cx - w / 2, cy - h / 2, edge, h);
-        if (t.wall === 'right') ctx.fillRect(cx + w / 2 - edge, cy - h / 2, edge, h);
-        ctx.strokeStyle = C.shade;
-        ctx.lineWidth = 1;
-        ctx.strokeRect(cx - w / 2, cy - h / 2, w, h);
-      });
-    }
-
-    drawLoaders(ctx) {
-      const S = this.scale;
-      F.LOADERS.forEach((l) => {
-        const dir = l.x < 0 ? 1 : -1; // direction into the field
-        const px = (d, w) => [this.wx(l.x + dir * d), this.wy(l.y + w)];
-        const pts = [px(0, 2.25), px(2.2, 2.25), px(5.4, 1.6), px(5.4, -1.6), px(2.2, -2.25), px(0, -2.25)];
-        ctx.beginPath();
-        pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
-        ctx.closePath();
-        ctx.fillStyle = C.goalBlack;
-        ctx.fill();
-        ctx.strokeStyle = l.team === 'red' ? C.red : C.blue;
-        ctx.lineWidth = Math.max(1, 0.3 * S);
-        ctx.stroke();
-        // mounting bar on the wall
-        ctx.fillStyle = C.mount;
-        ctx.fillRect(this.wx(l.x) - (l.x < 0 ? 0.1 : 0.6) * S, this.wy(l.y + 2.25), 0.7 * S, 4.5 * S);
-      });
-    }
-
-    // ---------------------------------------------------------- overlays
 
     drawPolyline(ctx, pts, color, width, dashed) {
       if (!pts || pts.length < 2) return;

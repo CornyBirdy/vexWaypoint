@@ -678,6 +678,8 @@
     const saved = load();
     if (saved && saved.S) {
       S = merge(clone(DEFAULTS), saved.S);
+      // the "drawn" field was removed; settings saved with it fall back to the match field
+      if (S.fieldStyle !== 'photo-skills') S.fieldStyle = 'photo-match';
       // 500 ms was the old default for the lift / claw wait; the new default is no wait at all
       if (saved.S.cfg && saved.S.cfg.mechanismWait === 500) S.cfg.mechanismWait = 0;
       pathFiles = Array.isArray(saved.files) ? saved.files : [];
@@ -844,7 +846,20 @@
     ro.observe($('field'));
 
     bindCanvas();
-    runNow({ autoplay: true });
+    const splashShown = Date.now();
+    runNow({ autoplay: true }).then(() => hideSplash(splashShown));
+  }
+
+  /** fade the logo splash out (if it is showing) once the first run is ready, but not before ~1 s; a click skips it */
+  function hideSplash(since) {
+    const el = $('splash');
+    if (!el || el.hidden) return;
+    const close = () => {
+      el.classList.add('out');
+      setTimeout(() => (el.hidden = true), 500);
+    };
+    el.addEventListener('click', close, { once: true });
+    setTimeout(close, Math.max(0, 1100 - (Date.now() - since)));
   }
 
   function togglePlay() {

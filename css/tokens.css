@@ -4,6 +4,7 @@
 
 /* ---- sizes, type (same in both themes) */
 :root {
+  --splash-bg: #08060e; /* the dark of assets/waypoint-logo.webp */
   --r-xs: 3px;
   --r-sm: 6px;
   --r-md: 10px;

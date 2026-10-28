@@ -1,4 +1,4 @@
-# Waypoint
+<p align="center"><img src="assets/waypoint-logo.webp" alt="Waypoint - the VEX V5 autonomous simulator" width="560"></p>
 
 <p>
 <picture>
@@ -51,7 +51,7 @@ Press **Edit paths** (above the field), or **New path**, then:
 Paths you draw (or open from a jerry.io file) are used in code by their name (`Path 2` is `Path_2`), plus the file name for imported ones (`example.txt` is `example_txt`); click the name in the list to copy it.
 **Export** writes a jerry.io project (`.jerryio`, opens in jerry.io), a LemLib v0.4 `.txt`, or a LemLib v1.0 `.bin`.
 
-The field picture can be switched between the match field, the skills field and the drawn version.
+The field picture can be switched between the match field and the skills field.
 
 ### Path coordinates
 
@@ -98,7 +98,7 @@ It is a small translator, **not a C++ compiler**: classes, templates and pointer
   * The defaults are typical, not measured on your robot: VEX publishes no gyro drift spec, and VEX Forum posts report anything from a few tenths of a degree per minute at rest to a few degrees of error per full rotation, and the friction of omni wheels on foam tiles is not well documented either. Tune them to what you see on your robot (see the 10-rotation gyro test on the VEX Forum for the scale error).
   * Odometry is modelled as LemLib does it: wheel travel from the drive encoders plus the gyro heading. Tracking wheels, wheel diameter error, battery sag, other robots and bumping into things are not modelled.
 * **Path files**: exported points and speeds are used as they are in plain-point files; paths opened in the editor are recomputed with the same speed rules jerry.io uses (even spacing along the curve, speed limits, bend-rate slowdown, keyframes, deceleration), so they can differ from the exported numbers by small amounts. Followed paths get a "ghost" tail past the end (like LemLib's) so the robot slows to a stop. If a file does not load, the run log says why.
-* **Field**: the default is path.jerryio's Override field picture. The "drawn" version is my own, measured off that picture: red side on the left, blue on the right, the 9 goals (octagonal posts; red alliance goals lower-left, blue upper-right, neutral short goals upper-left / lower-right, tall goal in the centre), the four 4-pin starbursts on the double diagonal, wall cup groups, single pins on the other diagonal, the red/blue pins at the diamond points, corner boxes, loaders on the alliance walls, and yellow toggles. Positions were measured off a top-down render of the field (about half an inch of error). Goal and cup sizes are estimates. Everything is plain data in `js/field.js`.
+* **Field**: the field pictures (match and skills) are path.jerryio's Override field images. They are pictures only: the goals, loaders and game elements on them are not simulated.
 
 ## Changes
 
@@ -118,7 +118,8 @@ js/paths.js                     jerry.io file parsing + speed profile
 js/editor.js, js/export.js      path editor model, jerry.io-compatible export
 js/pathtool.js                  path editing UI (field clicks, speed graph, list)
 assets/field/                   Override field pictures (from path.jerryio)
-js/field.js, js/render.js       Override field + canvas drawing
+assets/waypoint-logo.webp       the logo (README banner, start-up splash)
+js/render.js                     canvas drawing (field picture, paths, robot)
 js/app.js                       UI
 examples/                       example.txt, example.jerryio, example_auton.cpp
 rack.json, run-sim.bat, setup.bat, start.bat, serve.py, serve.ps1

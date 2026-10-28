@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Waypoint</title>
 <meta name="author" content="Invictus 52111A">
+<meta name="description" content="Waypoint, the VEX V5 autonomous simulator: run your LemLib auton code, draw paths and scrub the result on the Override field.">
+<meta property="og:title" content="Waypoint">
+<meta property="og:description" content="The VEX V5 autonomous simulator">
+<meta property="og:image" content="assets/waypoint-logo.webp">
 <link rel="icon" type="image/svg+xml" href="assets/icon/icon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="assets/icon/icon-32.png">
 <link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48">
@@ -15,6 +19,11 @@
 <script src="js/theme.js"></script>
 </head>
 <body>
+<div id="splash" class="splash" role="presentation" hidden><img src="assets/waypoint-logo.webp" alt="Waypoint, the VEX V5 autonomous simulator"></div>
+<script>
+  // show the splash once per browser session; the app removes it when the first run is ready
+  try { if (!sessionStorage.getItem('waypointSplash')) { document.getElementById('splash').hidden = false; sessionStorage.setItem('waypointSplash', '1'); } } catch (e) { /* no storage: no splash */ }
+</script>
 <header class="bar">
   <h1>Waypoint</h1>
   <span class="grow"></span>
@@ -35,7 +44,6 @@
       <select id="fieldStyle" aria-label="Field picture">
         <option value="photo-match">Field: match</option>
         <option value="photo-skills">Field: skills</option>
-        <option value="drawn">Field: drawn</option>
       </select>
     </div>
     <div class="canvas-wrap">
@@ -186,7 +194,6 @@
 <script src="js/editor.js"></script>
 <script src="js/export.js"></script>
 <script src="js/sim.js"></script>
-<script src="js/field.js"></script>
 <script src="js/render.js"></script>
 <script src="js/examples.js"></script>
 <script src="js/pathtool.js"></script>
