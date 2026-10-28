@@ -21,8 +21,9 @@ grouped by date.
   alignment point. The run log reports when that happens (or how close it got), the *align* readout and a green
   goal highlight show it on the timeline, and the run history notes it. With real-life error on there is a
   small bias against aligning (stickier aligners, 5% less allowance).
-- Goal base sizes are settable (**estimates**: the manual only has them in a drawing), and *goal hitboxes* shows
-  them on the field.
+- The goal footprint is a **square with cut-off corners** (about 5.65 in across, corners cut by 1 in, flat sides
+  parallel to the walls), measured off the field picture and confirmed by the team. The sizes and the corner cut
+  are settable, and *goal hitboxes* shows them on the field.
 - **Run history**: every Run is listed as "Run #N" with how long ago, its random seed, how long it took, how far
   off the odometry ended and whether the aligners aligned; **Replay** runs an earlier random draw again.
 - **Chassis panel**: map out the drivetrain. Choose how many wheels (2 to 4 per side) and whether each is

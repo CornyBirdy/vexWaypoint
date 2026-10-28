@@ -30,27 +30,30 @@
   ];
 
   /**
-   * Width of the goal's base, flat to flat, in inches. The manual only shows this in a drawing, so these
-   * are ESTIMATES (measured off the field picture): replace them with the numbers from Appendix A.
+   * The goal's footprint, measured off the field picture (assets/field/override-match.png), which the team
+   * confirmed matches the real goal base: a square 5.65 in across with its four corners cut off by about
+   * 1.0 in, so the flat sides are about 3.65 in long and sit parallel to the field walls. All the goals
+   * have the same footprint; the sizes can still be set separately (the manual only has them in a drawing).
    */
-  const GOAL_DEFAULTS = { tall: 5.8, short: 5.8, alliance: 5.8 };
+  const GOAL_DEFAULTS = { tall: 5.65, short: 5.65, alliance: 5.65, chamfer: 1.0 };
 
-  /** a regular octagon with its flat sides parallel to the field walls, counter-clockwise */
-  function octagon(cx, cy, flat) {
-    const R = flat / 2 / Math.cos(22.5 * D2R);
-    const pts = [];
-    for (let k = 0; k < 8; k++) {
-      const a = (22.5 + 45 * k) * D2R;
-      pts.push({ x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) });
-    }
-    return pts;
+  /** a square `flat` inches across with the corners cut off by `chamfer` inches, counter-clockwise */
+  function goalPolygon(cx, cy, flat, chamfer) {
+    const h = flat / 2;
+    const c = Math.min(Math.max(0, chamfer), h - 0.05);
+    const pts = [
+      [h - c, -h], [h, -h + c], [h, h - c], [h - c, h], [-h + c, h], [-h, h - c], [-h, -h + c], [-h + c, -h],
+    ];
+    return pts.map(([x, y]) => ({ x: cx + x, y: cy + y }));
   }
 
   function buildGoals(sizes) {
     const s = { ...GOAL_DEFAULTS, ...(sizes || {}) };
     return GOALS.map((g, i) => {
       const flat = Math.max(1, Number(s[g.kind]) || GOAL_DEFAULTS[g.kind]);
-      return { ...g, index: i, flat, poly: octagon(g.x, g.y, flat), R: flat / 2 / Math.cos(22.5 * D2R) };
+      const chamfer = isFinite(Number(s.chamfer)) ? Number(s.chamfer) : GOAL_DEFAULTS.chamfer;
+      const poly = goalPolygon(g.x, g.y, flat, chamfer);
+      return { ...g, index: i, flat, poly, R: Math.max(...poly.map((p) => Math.hypot(p.x - g.x, p.y - g.y))) };
     });
   }
 
@@ -315,7 +318,7 @@
   }
 
   Object.assign(NS, {
-    PERIMETER_HALF, FIELD_GOALS: GOALS, GOAL_DEFAULTS, buildGoals, makeWorld, resolveContacts: resolve,
+    PERIMETER_HALF, FIELD_GOALS: GOALS, GOAL_DEFAULTS, goalPolygon, buildGoals, makeWorld, resolveContacts: resolve,
     distanceToPolygon, collectContacts: collect,
   });
 })();

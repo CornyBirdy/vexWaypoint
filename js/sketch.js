@@ -241,17 +241,14 @@
       const ap = NS.alignerPoint(st, side);
       if (showGoal && goals) {
         const flat = goals.tall;
-        const R = flat / 2 / Math.cos(22.5 * D2R);
         const dir = side === 'back' ? -1 : 1;
-        const gx = ap.x;
-        const gy = ap.y + (dir * flat) / 2;
+        const poly = NS.goalPolygon(ap.x, ap.y + (dir * flat) / 2, flat, goals.chamfer);
         ctx.beginPath();
-        for (let k = 0; k < 8; k++) {
-          const ang = (22.5 + 45 * k) * D2R;
-          const q = toScreen(gx + R * Math.cos(ang), gy + R * Math.sin(ang));
+        poly.forEach((p, k) => {
+          const q = toScreen(p.x, p.y);
           if (k) ctx.lineTo(q.x, q.y);
           else ctx.moveTo(q.x, q.y);
-        }
+        });
         ctx.closePath();
         ctx.setLineDash([6, 4]);
         ctx.strokeStyle = themeColor('success', '#81c995');

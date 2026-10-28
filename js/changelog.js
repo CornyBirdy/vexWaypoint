@@ -22,7 +22,7 @@
               "sub": []
             },
             {
-              "text": "Goal base sizes are settable (**estimates**: the manual only has them in a drawing), and *goal hitboxes* shows them on the field.",
+              "text": "The goal footprint is a **square with cut-off corners** (about 5.65 in across, corners cut by 1 in, flat sides parallel to the walls), measured off the field picture and confirmed by the team. The sizes and the corner cut are settable, and *goal hitboxes* shows them on the field.",
               "sub": []
             },
             {

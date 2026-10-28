@@ -712,11 +712,19 @@ const angDiff = (a, b) => Math.abs(normDeg(a - b));
     assert.deepStrictEqual(V.alignerPoint(withPocket().front, 'front'), { x: 0, y: 7.5 }, 'the alignment point is the middle of the back of the aligners');
     assert.deepStrictEqual(V.alignerPoint(withPocket({ auto: false, point: { x: 1, y: 8 } }).front, 'front'), { x: 1, y: 8 }, 'or placed by hand');
 
-    // the goals are solid: the robot's body stops against the tall goal in the centre (5.8 in across, 15 in robot)
+    // the footprint measured off the field picture: 5.65 in square, corners cut by 1 in
+    const gp = V.goalPolygon(10, 20, 5.65, 1);
+    assert.strictEqual(gp.length, 8);
+    near(Math.max(...gp.map((q) => q.x)) - Math.min(...gp.map((q) => q.x)), 5.65, 1e-9, 'goal width');
+    near(Math.hypot(gp[0].x - gp[7].x, gp[0].y - gp[7].y), 5.65 - 2, 1e-9, 'the flat side is the width minus both cut corners');
+    assert(V.buildGoals({}).every((g) => g.flat === 5.65 && g.poly.length === 8), 'all nine goals share the measured footprint');
+    assert.strictEqual(V.buildGoals({}).length, 9);
+
+    // the goals are solid: the robot's body stops against the tall goal in the centre (5.65 in across, 15 in robot)
     const goalWorld = { goals: {}, aligners: V.sanitizeAligners({ front: { on: false }, back: { on: false } }) };
     const drive = 'chassis.moveToPoint(0, 35, 3000, {}, false);';
     t = await run(drive, { start: { x: 0, y: -25, h: 0 }, world: goalWorld });
-    near(t.end.y, -2.9 - 7.5, 0.4, 'the robot stops against the goal');
+    near(t.end.y, -2.825 - 7.5, 0.3, 'the robot stops against the goal');
     t = await run(drive, { start: { x: 0, y: -25, h: 0 } });
     assert(t.end.y > 8, 'without solid goals it drives through: ' + t.end.y);
     // the goals have an exact size that can be set

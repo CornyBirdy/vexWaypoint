@@ -54,6 +54,7 @@
       ['goals.tall', 'Tall goal (centre)', 0.1, 2, 12],
       ['goals.short', 'Short neutral goals', 0.1, 2, 12],
       ['goals.alliance', 'Alliance goals', 0.1, 2, 12],
+      ['goals.chamfer', 'Corner cut-off', 0.1, 0, 3],
     ],
     formLat: controllerFields('lateral'),
     formAng: controllerFields('angular'),
@@ -730,7 +731,10 @@
       S.chassis = V.sanitizeChassis(S.chassis);
       S.aligners = V.sanitizeAligners(S.aligners);
       Object.keys(V.GOAL_DEFAULTS).forEach((k) => {
-        if (!(S.goals[k] >= 2 && S.goals[k] <= 12)) S.goals[k] = V.GOAL_DEFAULTS[k];
+        const lo = k === 'chamfer' ? 0 : 2;
+        const hi = k === 'chamfer' ? 3 : 12;
+        // goals saved with the old estimate (5.8 in, regular octagon) get the measured footprint
+        if (!(S.goals[k] >= lo && S.goals[k] <= hi) || (k !== 'chamfer' && S.goals[k] === 5.8)) S.goals[k] = V.GOAL_DEFAULTS[k];
       });
       // 500 ms was the old default for the lift / claw wait; the new default is no wait at all
       if (saved.S.cfg && saved.S.cfg.mechanismWait === 500) S.cfg.mechanismWait = 0;
