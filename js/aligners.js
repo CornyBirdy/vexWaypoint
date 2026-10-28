@@ -29,7 +29,7 @@
   function emptySet(on) {
     return { on, shapes: [], thickness: 0.25, material: 'polycarbonate', tol: 0.5, auto: true, point: { x: 0, y: 0 } };
   }
-  const DEFAULT_ALIGNERS = { front: emptySet(true), back: emptySet(false) };
+  const DEFAULT_ALIGNERS = { front: emptySet(false), back: emptySet(false) }; // off until you draw some
 
   // ---------------------------------------------------------------- shapes
 
@@ -143,7 +143,7 @@
   }
 
   function sanitizeSet(set, side) {
-    const base = emptySet(side === 'front');
+    const base = emptySet(false);
     if (!set || typeof set !== 'object') return base;
     const out = {
       on: set.on === undefined ? base.on : !!set.on,

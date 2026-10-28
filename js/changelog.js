@@ -153,6 +153,18 @@
             {
               "text": "A `follow()` path in **Shifted to the robot** mode now starts at where the odometry says the robot is.",
               "sub": []
+            },
+            {
+              "text": "**Wheel setup has Blank.** Every chassis has 4 wheel positions a side (8 in all, the default), and each one is Omni, Traction or **Blank**. The + / - buttons are gone: a 4WD is four blanks. Clicking a wheel in the drawing steps through omni, traction and blank. Settings saved with more or fewer wheels carry over.",
+              "sub": []
+            },
+            {
+              "text": "**Real-life error is off by default and smaller.** The gyro drift, scale error, noise and tracking wheel scale are turned down about a third to a half. A new **Error size** box multiplies all of them (and loosens the grip) so you can simulate a worst case (2 or 3) or a good robot (0.5). Settings saved before this go back to off once.",
+              "sub": []
+            },
+            {
+              "text": "**Goal aligners are off by default.** Drawing the first shape switches that set on. Goals and walls are only solid when asked for or while aligners are on (the tickbox is greyed out and says why).",
+              "sub": []
             }
           ]
         },
@@ -186,6 +198,10 @@
             },
             {
               "text": "`chassis.setPose(lemlib::Pose(...))`, `setPose(pose)` and `setPose({x, y, theta})` crashed the run or gave `NaN`; the radians flag of `setPose(x, y, rad, true)` was ignored.",
+              "sub": []
+            },
+            {
+              "text": "**Aligners drawn inside the robot's body now touch the goal.** The robot's body used to hit the goal first, so an aligner drawn within the 15 x 15 outline never did anything. The body is now cut back to the rear-most aligner point at the front (or back) of the robot, with the sides still full length, so the aligner meets the goal.",
               "sub": []
             }
           ]

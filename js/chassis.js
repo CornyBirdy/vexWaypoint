@@ -1,5 +1,5 @@
 /*
- * The robot's chassis: which wheels it has (omni / traction, in what order) and which tracking wheels.
+ * The robot's chassis: which wheels it has (omni / traction / blank, in what order) and which tracking wheels.
  *
  * From that this file works out how the robot behaves on the floor (forward grip, sideways grip, turn
  * scrub, how much the grip changes from run to run) and how its odometry is measured. The physics in
@@ -19,16 +19,20 @@
    *   roll     rolling resistance coefficient on foam tiles (the motors have to push against it)
    */
   const WHEEL_TYPES = {
-    omni: { label: 'Omni', grip: 0.75, lat: 0.25, spread: 6, roll: 0.035 },
-    traction: { label: 'Traction', grip: 1.0, lat: 0.9, spread: 3, roll: 0.055 },
+    omni: { label: 'Omni', grip: 0.8, lat: 0.3, spread: 4, roll: 0.035 },
+    traction: { label: 'Traction', grip: 1.0, lat: 0.9, spread: 2, roll: 0.055 },
   };
-  const MAX_PER_SIDE = 4;
+  // every side has this many wheel positions; each is omni, traction or blank (no wheel there), so a 4WD is
+  // an 8-position drivetrain with four of them blank
+  const SLOTS = 4;
+  const CHOICES = ['omni', 'traction', 'none'];
+  const CHOICE_LABEL = { omni: 'Omni', traction: 'Traction', none: 'Blank' };
   const TRACKING_DIAMETER = 2; // drawn size of a tracking wheel, in
 
   const DEFAULT_CHASSIS = {
-    left: ['omni', 'traction', 'omni'],
+    left: ['omni', 'traction', 'traction', 'omni'],
     mirror: true,
-    right: ['omni', 'traction', 'omni'],
+    right: ['omni', 'traction', 'traction', 'omni'],
     imu: true, // heading from the inertial sensor; without it LemLib uses the wheels
     // `second`: a second forward tracking wheel on the other side (two of them can give the heading without an IMU)
     tracking: { vertical: { on: false, offset: 3 }, horizontal: { on: false, offset: -2 }, second: false },
@@ -41,9 +45,11 @@
   function sanitize(ch) {
     const base = clone(DEFAULT_CHASSIS);
     if (!ch || typeof ch !== 'object') return base;
+    // a side is SLOTS entries (a short list is padded with blanks); it needs at least one real wheel
     const side = (list, fallback) => {
-      const ok = (Array.isArray(list) ? list : []).filter((t) => WHEEL_TYPES[t]).slice(0, MAX_PER_SIDE);
-      return ok.length ? ok : fallback;
+      const ok = (Array.isArray(list) ? list : []).filter((t) => CHOICES.includes(t)).slice(0, SLOTS);
+      while (ok.length < SLOTS) ok.push('none');
+      return ok.some((t) => t !== 'none') ? ok : fallback;
     };
     const out = { left: side(ch.left, base.left), mirror: ch.mirror !== false, imu: ch.imu !== false, tracking: base.tracking };
     out.right = out.mirror ? out.left.slice() : side(ch.right, out.left.slice());
@@ -56,19 +62,21 @@
     return out;
   }
 
-  /** every drive wheel: {x, y, type}. x = inches right of the robot's centre, y = inches ahead of it */
-  function layout(ch, p) {
+  /** every wheel position, blank ones too: {side, index, x, y, type}. x = inches right of the robot's centre, y = ahead of it */
+  function slots(ch, p) {
     const c = sanitize(ch);
     const span = Math.max(2, (p.length || 15) - (p.wheelDiameter || 3.25) - 1);
     const half = (p.trackWidth || 12) / 2;
-    const wheels = [];
-    [[-1, c.left], [1, c.right]].forEach(([sx, list]) => {
-      list.forEach((type, i) => {
-        const y = list.length === 1 ? 0 : span / 2 - (i * span) / (list.length - 1); // front wheel first
-        wheels.push({ x: sx * half, y, type });
-      });
+    const out = [];
+    [['left', -1, c.left], ['right', 1, c.right]].forEach(([side, sx, list]) => {
+      list.forEach((type, i) => out.push({ side, index: i, x: sx * half, y: span / 2 - (i * span) / (SLOTS - 1), type })); // front first
     });
-    return wheels;
+    return out;
+  }
+
+  /** every drive wheel that is there (not blank): {x, y, type} */
+  function layout(ch, p) {
+    return slots(ch, p).filter((w) => w.type !== 'none');
   }
 
   /**
@@ -103,9 +111,10 @@
   function describe(ch, p) {
     const d = derive(ch, p);
     const odo = [d.tracking.vertical.on && 'forward tracking wheel', d.tracking.horizontal.on && 'sideways tracking wheel'].filter(Boolean);
+    const blank = 2 * SLOTS - d.wheels;
     const head = { imu: 'IMU', wheels: 'two forward tracking wheels', drive: 'drive wheel encoders (slip and scrub fool it, LemLib advises against it)' }[d.heading];
     return (
-      `${d.wheels} drive wheels. Forward grip ${d.grip.toFixed(2)}, sideways grip ${d.latGrip.toFixed(2)}, ` +
+      `${d.wheels} drive wheels${blank ? ` (${blank} blank)` : ''}. Forward grip ${d.grip.toFixed(2)}, sideways grip ${d.latGrip.toFixed(2)}, ` +
       `turn scrub x${d.scrub.toFixed(2)}, grip changes ${d.spread.toFixed(1)}% per run. ` +
       `Odometry: ${odo.length ? odo.join(' + ') : 'drive wheel encoders (wheel slip fools it)'}; heading from ${head}. ` +
       `LemLib's docs suggest a horizontal drift of ${d.driftHint} for this wheel mix` +
@@ -159,7 +168,7 @@
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const p = s.robot;
       const c = sanitize(s.chassis);
-      const wheels = layout(c, p);
+      const wheelSlots = slots(c, p);
       // fit the robot, its wheels and the tracking wheels, rounded up to whole 6 in squares
       const trackOff = [c.tracking.vertical, c.tracking.horizontal].reduce((m, t) => Math.max(m, t.on ? Math.abs(t.offset) : 0), 0);
       const reach = Math.max(p.length, p.width, p.trackWidth + p.wheelDiameter) / 2 + 3 + trackOff * 0.2;
@@ -211,19 +220,21 @@
       ctx.lineTo(X(2), Y(p.length / 2));
       ctx.stroke();
 
-      // drive wheels
+      // drive wheels (a blank position is drawn as an empty dashed slot)
       const wheelW = 1.1;
       this.hits = [];
-      let li = 0;
-      let ri = 0;
-      wheels.forEach((w) => {
-        const left = w.x < 0;
-        const idx = left ? li++ : ri++;
+      wheelSlots.forEach((w) => {
         const x0 = X(w.x - wheelW / 2);
         const y0 = Y(w.y + p.wheelDiameter / 2);
         const ww = wheelW * scale;
         const hh = p.wheelDiameter * scale;
-        if (w.type === 'omni') {
+        if (w.type === 'none') {
+          ctx.strokeStyle = col('ink-muted');
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 3]);
+          ctx.strokeRect(x0, y0, ww, hh);
+          ctx.setLineDash([]);
+        } else if (w.type === 'omni') {
           ctx.fillStyle = col('surface-raised');
           ctx.fillRect(x0, y0, ww, hh);
           ctx.strokeStyle = col('ink');
@@ -249,7 +260,7 @@
           }
           ctx.stroke();
         }
-        this.hits.push({ side: left ? 'left' : 'right', index: idx, x: w.x, y: w.y, hw: wheelW / 2 + 0.4, hl: p.wheelDiameter / 2 });
+        this.hits.push({ side: w.side, index: w.index, x: w.x, y: w.y, hw: wheelW / 2 + 0.4, hl: p.wheelDiameter / 2 });
       });
 
       // tracking wheels: forward one sits to the right (+) / left (-) of centre, sideways one ahead (+) / behind (-)
@@ -269,5 +280,5 @@
     }
   }
 
-  Object.assign(NS, { WHEEL_TYPES, DEFAULT_CHASSIS, MAX_WHEELS_PER_SIDE: MAX_PER_SIDE, sanitizeChassis: sanitize, chassisLayout: layout, deriveChassis: derive, describeChassis: describe, ChassisView });
+  Object.assign(NS, { WHEEL_TYPES, WHEEL_CHOICES: CHOICES, WHEEL_CHOICE_LABEL: CHOICE_LABEL, WHEEL_SLOTS: SLOTS, DEFAULT_CHASSIS, sanitizeChassis: sanitize, chassisLayout: layout, chassisSlots: slots, deriveChassis: derive, describeChassis: describe, ChassisView });
 })();

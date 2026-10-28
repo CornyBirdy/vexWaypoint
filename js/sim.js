@@ -57,6 +57,7 @@
   const motorStep = (...a) => NS.motorStep(...a);
   const LAT_TAU = 0.015; // s: how fast the tyres kill sideways speed while they still have grip
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const num = (v, d) => (v !== null && v !== '' && isFinite(Number(v)) ? Number(v) : d);
 
   /** small seeded generator (mulberry32) so a seed always gives the same run */
   function makeRng(seed) {
@@ -87,10 +88,10 @@
    */
   const REAL_DEFAULTS = {
     seed: 1,
-    gyroDrift: 0.3, // deg / min, 1 sigma of the sensor's bias (changes from run to run)
-    gyroScale: 0.5, // %, 1 sigma of the turn-rate scale error
-    gyroNoise: 0.05, // deg, 1 sigma of the reading noise
-    trackScale: 0.3, // %, 1 sigma of a tracking wheel's size error (changes from run to run)
+    gyroDrift: 0.2, // deg / min, 1 sigma of the sensor's bias (changes from run to run)
+    gyroScale: 0.3, // %, 1 sigma of the turn-rate scale error
+    gyroNoise: 0.03, // deg, 1 sigma of the reading noise
+    trackScale: 0.2, // %, 1 sigma of a tracking wheel's size error (changes from run to run)
     grip: 0.8, // friction coefficient driving forwards / braking (0 = wheels never slip)
     gripVar: 5, // %, 1 sigma of how much the grip changes from run to run
     latGrip: 0.6, // friction coefficient sideways (0 = never slides)
@@ -106,27 +107,32 @@
     const d = NS.deriveChassis ? NS.deriveChassis(o.chassis, p || {}) : null;
     const dflt = (k) => (d && k === 'gripVar' ? d.spread : d && d[k] != null ? d[k] : REAL_DEFAULTS[k]);
     const n = (k) => (isFinite(Number(o[k])) && o[k] !== null && o[k] !== '' ? Number(o[k]) : dflt(k));
+    // the error size multiplier: 1 is typical, 2 a noticeably bad day (every random error twice as big and the
+    // floor slipperier), 0.5 a good one
+    const mul = clamp(num(o.mult, 1), 0.1, 5);
+    const gripDiv = Math.max(0.4, 1 + 0.5 * (mul - 1));
     const rng = makeRng(n('seed'));
-    const gripMul = clamp(1 + (n('gripVar') / 100) * rng.randn(), 0.5, 1.5);
-    const grip = Math.max(0, n('grip'));
-    const latGrip = Math.max(0, n('latGrip'));
-    const drift = Math.max(0, n('gyroDrift'));
+    const gripMul = clamp(1 + ((n('gripVar') * mul) / 100) * rng.randn(), 0.4, 1.6);
+    const grip = Math.max(0, n('grip')) / gripDiv;
+    const latGrip = Math.max(0, n('latGrip')) / gripDiv;
+    const drift = Math.max(0, n('gyroDrift')) * mul;
     const tracking = o.tracking || (d && d.tracking) || NO_TRACKING;
     return {
       rng,
       seed: n('seed'),
       // drawn once per run, always in this order
       biasDegPerS: (drift / 60) * rng.randn(),
-      scale: (Math.max(0, n('gyroScale')) / 100) * rng.randn(),
+      scale: ((Math.max(0, n('gyroScale')) * mul) / 100) * rng.randn(),
       heading: o.heading || (d ? d.heading : 'imu'),
-      trkScaleV: (Math.max(0, n('trackScale')) / 100) * rng.randn(),
-      trkScaleH: (Math.max(0, n('trackScale')) / 100) * rng.randn(),
+      trkScaleV: ((Math.max(0, n('trackScale')) * mul) / 100) * rng.randn(),
+      trkScaleH: ((Math.max(0, n('trackScale')) * mul) / 100) * rng.randn(),
       tracking,
       // aligners grip the goal a little harder than average and vary from run to run: a small bias towards
       // NOT aligning, so autos are no more consistent than they are on a real field
       alignMu: clamp(1.08 + 0.12 * rng.randn(), 0.7, 1.6),
       walkDegPerSqrtS: (drift / 60) * 0.05, // the bias wanders a little during the run
-      noiseRad: Math.max(0, n('gyroNoise')) * D2R,
+      noiseRad: Math.max(0, n('gyroNoise')) * mul * D2R,
+      mult: mul,
       longLim: grip > 0 ? grip * gripMul * G : Infinity, // max change of ground speed, in / s^2
       latLim: latGrip * gripMul * G,
       latOn: latGrip > 0,
@@ -877,14 +883,28 @@
   function makeRunWorld(o) {
     if (!o.world || !NS.makeWorld) return null;
     const capsules = [];
+    const cuts = {};
     const al = NS.sanitizeAligners ? NS.sanitizeAligners(o.world.aligners) : {};
+    const L = o.robot.length;
     Object.keys(al).forEach((side) => {
       const set = al[side];
-      if (!set.on) return;
+      if (!set.on || !set.shapes.length) return;
       const mu = NS.MATERIALS[set.material].mu;
       NS.alignerSegments(set).forEach((g) => capsules.push({ ...g, r: set.thickness / 2, mu, set: side }));
+      // the aligner is the front (back) of the chassis: the body ends at its rear-most point
+      const pts = [];
+      set.shapes.forEach((s) => NS.shapePolyline(s, 0.05).forEach((p) => pts.push(p)));
+      const xs = pts.map((p) => p.x);
+      const ys = pts.map((p) => p.y);
+      if (side === 'front') {
+        const y = Math.max(0, Math.min(L / 2, Math.min(...ys)));
+        if (y < L / 2 - 0.01) cuts.front = { y, x0: Math.min(...xs), x1: Math.max(...xs) };
+      } else {
+        const y = Math.min(0, Math.max(-L / 2, Math.max(...ys)));
+        if (y > -L / 2 + 0.01) cuts.back = { y, x0: Math.min(...xs), x1: Math.max(...xs) };
+      }
     });
-    const world = NS.makeWorld({ half: o.world.half, goals: NS.buildGoals(o.world.goals), body: { length: o.robot.length, width: o.robot.width }, capsules });
+    const world = NS.makeWorld({ half: o.world.half, goals: NS.buildGoals(o.world.goals), body: { length: o.robot.length, width: o.robot.width }, capsules, cuts });
     world.aligners = al;
     return world;
   }

@@ -404,6 +404,7 @@
       if (!prev) return;
       const s = NS.sanitizeAligners({ front: { shapes: [prev] }, back: {} }).front.shapes[0];
       if (!s) return;
+      if (!shapes().length) set().on = true; // drawing the first shape switches the set on
       shapes().push(s);
       if (mirrorDraw) {
         const m = mirrorShape(s);

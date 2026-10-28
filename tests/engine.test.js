@@ -495,6 +495,16 @@ const angDiff = (a, b) => Math.abs(normDeg(a - b));
     near(rb.sy, rb.y, 1e-12, 'reset y');
     near(rb.sh, rb.h, 1e-12, 'reset heading');
     assert(r.res.realism.maxPosErr > 0.5, 'there was an error before the reset: ' + r.res.realism.maxPosErr);
+    // the error-size multiplier: x2 is a worse robot than x1, which is worse than x0.5, on the same random draw
+    const sized = async (mult) => {
+      let sum = 0;
+      for (const seed of [1, 2, 3, 4, 5, 6]) sum += (await run(drive, { language: 'js', realism: { enabled: true, seed, mult } })).res.realism.endPosErr;
+      return sum / 6;
+    };
+    const e1 = await sized(1);
+    const e2 = await sized(2);
+    const eHalf = await sized(0.5);
+    assert(eHalf < e1 && e1 < e2, `a bigger error size gives a bigger odometry error: ${eHalf.toFixed(2)} / ${e1.toFixed(2)} / ${e2.toFixed(2)} in`);
     console.log('ok real-life error: gyro drift, wheel slip, sliding, scrub, wall, setPose, seeds');
   }
 
@@ -568,13 +578,13 @@ const angDiff = (a, b) => Math.abs(normDeg(a - b));
 
   // --- chassis: wheel types and tracking wheels decide how the robot behaves on the floor
   {
-    const allOmni = { left: ['omni', 'omni'], mirror: true };
-    const allTraction = { left: ['traction', 'traction'], mirror: true };
-    const centreTraction = { left: ['omni', 'traction', 'omni'], mirror: true };
-    const endTraction = { left: ['traction', 'omni', 'traction'], mirror: true };
+    const allOmni = { left: ['omni', 'omni', 'omni', 'omni'], mirror: true };
+    const allTraction = { left: ['traction', 'traction', 'traction', 'traction'], mirror: true };
+    const centreTraction = { left: ['omni', 'traction', 'traction', 'omni'], mirror: true };
+    const endTraction = { left: ['traction', 'omni', 'omni', 'traction'], mirror: true };
     const dOmni = V.deriveChassis(allOmni, ROBOT);
     const dTrac = V.deriveChassis(allTraction, ROBOT);
-    assert.strictEqual(dOmni.wheels, 4);
+    assert.strictEqual(dOmni.wheels, 8);
     assert(dTrac.grip > dOmni.grip && dTrac.latGrip > dOmni.latGrip, 'traction wheels grip more');
     assert(dTrac.scrub > dOmni.scrub && dTrac.scrub < 1.4, 'but scrub more when turning: ' + dTrac.scrub);
     assert(V.deriveChassis(endTraction, ROBOT).scrub > V.deriveChassis(centreTraction, ROBOT).scrub, 'a traction wheel in the centre scrubs less than one at the ends');
@@ -583,7 +593,19 @@ const angDiff = (a, b) => Math.abs(normDeg(a - b));
     assert.strictEqual(lay.length, 6);
     assert(lay[0].y > lay[1].y && lay[1].y > lay[2].y && lay[0].x < 0 && lay[3].x > 0, 'wheels go front to back, left then right');
     assert.deepStrictEqual(V.sanitizeChassis({ left: ['bogus'], tracking: { vertical: { on: 1, offset: 99 } } }).left, V.DEFAULT_CHASSIS.left, 'junk falls back to the default chassis');
-    assert.strictEqual(V.sanitizeChassis({ left: ['omni'], mirror: false, right: ['traction', 'omni'] }).right.length, 2, 'the right side can differ');
+    assert.deepStrictEqual(V.sanitizeChassis({ left: ['omni'], mirror: false, right: ['traction', 'omni'] }).right, ['traction', 'omni', 'none', 'none'], 'the right side can differ, and a short list is padded with blanks');
+    // blank positions: a 4WD is eight positions with four blank
+    assert.strictEqual(V.WHEEL_SLOTS, 4);
+    assert.deepStrictEqual(V.DEFAULT_CHASSIS.left.length, 4, 'the default chassis has 8 wheel positions');
+    const fourWd = { left: ['omni', 'none', 'none', 'omni'], mirror: true };
+    assert.strictEqual(V.deriveChassis(fourWd, ROBOT).wheels, 4, 'blank positions are not wheels');
+    assert.strictEqual(V.chassisSlots(fourWd, ROBOT).length, 8, 'but they are still positions');
+    assert.strictEqual(V.chassisSlots(fourWd, ROBOT).filter((w) => w.type === 'none').length, 4);
+    const slotsY = V.chassisSlots(V.DEFAULT_CHASSIS, ROBOT).filter((w) => w.side === 'left').map((w) => w.y);
+    assert(slotsY[0] > slotsY[1] && slotsY[1] > slotsY[2] && slotsY[2] > slotsY[3], 'positions run front to back');
+    assert.deepStrictEqual(V.sanitizeChassis({ left: ['none', 'none', 'none', 'none'] }).left, V.DEFAULT_CHASSIS.left, 'a side with no wheel at all falls back');
+    const spreadOut = V.chassisSlots({ left: ['omni', 'none', 'none', 'omni'], mirror: true }, ROBOT).filter((w) => w.side === 'left' && w.type !== 'none');
+    assert(Math.abs(spreadOut[0].y - spreadOut[1].y) > 8, 'the wheels stay at their positions when the ones between are blank');
     assert(/drive wheels/.test(V.describeChassis(allOmni, ROBOT)));
 
     const rc = (chassis, extra) => ({ enabled: true, seed: 4, chassis, ...extra });
@@ -664,7 +686,7 @@ const angDiff = (a, b) => Math.abs(normDeg(a - b));
 
     // where the heading comes from: the drive wheels scrub, so a heading taken from them is wrong; an IMU is not
     const zero = { gyroDrift: 0, gyroScale: 0, gyroNoise: 0, trackScale: 0 };
-    const traction = { left: ['traction', 'traction'], mirror: true };
+    const traction = { left: ['traction', 'traction', 'traction', 'traction'], mirror: true };
     const turn = 'chassis.turnToHeading(180, 4000, {}, false);';
     const withImu = await run(turn, { realism: { enabled: true, seed: 2, chassis: { ...traction, imu: true }, ...zero } });
     const noImu = await run(turn, { realism: { enabled: true, seed: 2, chassis: { ...traction, imu: false }, ...zero } });
@@ -673,9 +695,9 @@ const angDiff = (a, b) => Math.abs(normDeg(a - b));
     assert(noImu.res.realism.endHeadErr > 4, 'drive-wheel heading is off by the scrub: ' + noImu.res.realism.endHeadErr);
     assert(twoWheels.res.realism.endHeadErr < 1.5, 'two forward tracking wheels give a good heading: ' + twoWheels.res.realism.endHeadErr);
     assert(/heading from the drive wheel encoders/.test(noImu.res.events.map((e) => e.text).join('\n')), 'the log says where the heading comes from');
-    const d = V.deriveChassis({ left: ['omni', 'omni'], mirror: true }, ROBOT);
+    const d = V.deriveChassis({ left: ['omni', 'omni', 'omni', 'omni'], mirror: true }, ROBOT);
     assert.strictEqual(d.driftHint, 2);
-    assert.strictEqual(V.deriveChassis({ left: ['omni', 'traction'], mirror: true }, ROBOT).driftHint, 8);
+    assert.strictEqual(V.deriveChassis({ left: ['omni', 'traction', 'traction', 'omni'], mirror: true }, ROBOT).driftHint, 8);
     console.log('ok LemLib docs checks: Omniwheel, odometry import, utils, Timer, PID, resetLocalPosition, heading source');
   }
 
@@ -702,7 +724,7 @@ const angDiff = (a, b) => Math.abs(normDeg(a - b));
     assert.strictEqual(clean.front.material, 'polycarbonate');
     assert.strictEqual(clean.front.thickness, 1);
     assert.strictEqual(clean.back.on, false, 'back aligners are off by default');
-    assert.strictEqual(clean.front.on, true, 'front aligners are on by default');
+    assert.strictEqual(clean.front.on, false, 'aligners are off by default');
     ['polycarbonate', 'acetal', 'steel', 'aluminium'].forEach((m) => assert(V.MATERIALS[m].mu > 0.05 && V.MATERIALS[m].mu < 1));
     assert(V.MATERIALS.acetal.mu < V.MATERIALS.polycarbonate.mu, 'acetal is the slippery one');
 
@@ -769,6 +791,12 @@ const angDiff = (a, b) => Math.abs(normDeg(a - b));
     const ideal4 = await pocketRun(4);
     assert(!t.res.align.front.aligned || ideal4.res.align.front.aligned, 'a messy approach is never easier than in the perfect sim');
 
+    // aligners drawn inside the body outline: the body is pulled back so the aligner meets the goal first
+    const inner = V.sanitizeAligners({ front: { on: true, shapes: [L(-3.1, 3, 3.1, 3), L(-3.1, 3, -3.1, 6), L(3.1, 3, 3.1, 6), L(-3.1, 6, -6, 7), L(3.1, 6, 6, 7)] }, back: { on: false } });
+    t = await run(drive, { start: { x: 0, y: -25, h: 0 }, world: { goals: {}, aligners: inner } });
+    assert(t.res.align.front.aligned, 'an aligner drawn inside the body outline still meets the goal');
+    near(t.end.y, -2.825 - 3, 0.6, 'the goal is stopped at the aligner, not at the body: ' + t.end.y);
+
     // many frames, and speed: a full run with contacts stays quick
     const t0 = Date.now();
     await pocketRun(1);
@@ -811,7 +839,7 @@ const angDiff = (a, b) => Math.abs(normDeg(a - b));
     assert.deepStrictEqual([V.sanitizeMotor({ perSide: 4, watts: 5.5 }).n11, V.sanitizeMotor({ perSide: 4, watts: 5.5 }).n55], [0, 4]);
     assert(/55 W drive/.test(V.describeMotors({ ...base, motor: V.sanitizeMotor({ n11: 2, n55: 1 }) })) && /a bit less than half/.test(V.describeMotors({ ...base, motor: V.sanitizeMotor({ n11: 2, n55: 1 }) })));
     assert(V.motorModel(withMotor({ cur11: { limitA: 1 } })).respMs > d.respMs, 'a lower current limit means less torque');
-    assert(V.motorModel(base, { left: ['traction', 'traction'], mirror: true }).speedPct < V.motorModel(base, { left: ['omni', 'omni'], mirror: true }).speedPct, 'traction wheels roll harder than omnis');
+    assert(V.motorModel(base, { left: ['traction', 'traction', 'traction', 'traction'], mirror: true }).speedPct < V.motorModel(base, { left: ['omni', 'omni', 'omni', 'omni'], mirror: true }).speedPct, 'traction wheels roll harder than omnis');
     assert(/motors/.test(V.describeMotors(base)) && /% of the wheel/.test(V.describeMotors(base)));
 
     // in the sim: the robot really reaches the worked-out speed, and a heavy one takes longer for the same move

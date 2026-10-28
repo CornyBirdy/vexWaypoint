@@ -148,10 +148,37 @@
    *   muBody     friction of the chassis body against goals
    *   muWall     friction against the walls
    */
+  /**
+   * The chassis body as convex pieces. Aligners are part of the front (or back) of the chassis, so where one
+   * is, the body stops at the aligner's rear-most point instead of at the full length: the aligner is the
+   * surface that meets the goal. The chassis beside the aligner (wider than it) stays full length.
+   * @param {{front?: {y:number, x0:number, x1:number}, back?: {y:number, x0:number, x1:number}}} cuts
+   */
+  function bodyPieces(length, width, cuts) {
+    const hl = length / 2;
+    const hw = width / 2;
+    const f = cuts && cuts.front;
+    const b = cuts && cuts.back;
+    const yf = f ? f.y : hl;
+    const yb = b ? Math.min(b.y, yf - 0.5) : -hl;
+    const rect = (x0, y0, x1, y1) => [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }]; // counter-clockwise
+    const pieces = [rect(-hw, yb, hw, Math.max(yf, yb + 0.5))];
+    const wings = (cut, y0, y1) => {
+      if (!cut) return;
+      const x0 = Math.max(-hw, cut.x0);
+      const x1 = Math.min(hw, cut.x1);
+      if (x0 > -hw + 0.05) pieces.push(rect(-hw, y0, x0, y1));
+      if (x1 < hw - 0.05) pieces.push(rect(x1, y0, hw, y1));
+    };
+    wings(f, f ? f.y : hl, hl);
+    wings(b, -hl, b ? b.y : -hl);
+    return pieces;
+  }
+
   function makeWorld(o) {
     const L = o.body.length / 2;
     const W = o.body.width / 2;
-    const bodyLocal = [{ x: -W, y: -L }, { x: W, y: -L }, { x: W, y: L }, { x: -W, y: L }]; // counter-clockwise
+    const pieces = bodyPieces(o.body.length, o.body.width, o.cuts);
     let radius = Math.hypot(W, L);
     (o.capsules || []).forEach((c) => {
       radius = Math.max(radius, Math.hypot(c.ax, c.ay) + c.r, Math.hypot(c.bx, c.by) + c.r);
@@ -159,7 +186,7 @@
     return {
       half: o.half == null ? PERIMETER_HALF : o.half,
       goals: o.goals || [],
-      bodyLocal,
+      bodyPieces: pieces,
       capsules: o.capsules || [],
       radius,
       muBody: o.muBody == null ? 0.3 : o.muBody,
@@ -245,11 +272,13 @@
     const c = Math.cos(pose.h);
     const s = Math.sin(pose.h);
     const out = [];
-    const body = world.bodyLocal.map((p) => toWorld(pose, c, s, p.x, p.y));
+    const pieces = world.bodyPieces.map((poly) => poly.map((p) => toWorld(pose, c, s, p.x, p.y)));
+    const centres = pieces.map((poly) => ({ x: poly.reduce((a, p) => a + p.x, 0) / poly.length, y: poly.reduce((a, p) => a + p.y, 0) / poly.length }));
+    const body = pieces.flat();
     const caps = world.capsules.map((k) => ({ a: toWorld(pose, c, s, k.ax, k.ay), b: toWorld(pose, c, s, k.bx, k.by), r: k.r, mu: k.mu, set: k.set }));
     for (const g of world.goals) {
       if (Math.hypot(g.x - pose.x, g.y - pose.y) > world.radius + g.R + 0.1) continue;
-      bodyVsGoal(body, g.poly, pose, g, out, world.muBody * world.muScale, g);
+      pieces.forEach((poly, i) => bodyVsGoal(poly, g.poly, centres[i], g, out, world.muBody * world.muScale, g));
       for (const k of caps) capsuleVsGoal(k.a, k.b, k.r, g.poly, out, k.mu * world.muScale, g, k.set);
     }
     // walls: any corner or aligner end past them
@@ -318,7 +347,7 @@
   }
 
   Object.assign(NS, {
-    PERIMETER_HALF, FIELD_GOALS: GOALS, GOAL_DEFAULTS, goalPolygon, buildGoals, makeWorld, resolveContacts: resolve,
+    PERIMETER_HALF, FIELD_GOALS: GOALS, GOAL_DEFAULTS, goalPolygon, buildGoals, bodyPieces, makeWorld, resolveContacts: resolve,
     distanceToPolygon, collectContacts: collect,
   });
 })();

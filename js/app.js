@@ -10,10 +10,10 @@
   const DEFAULTS = {
     start: { x: -58, y: -58, h: 0 },
     robot: { wheelDiameter: 3.25, rpm: 450, speedPct: 90, trackWidth: 12, length: 15, width: 15, responseMs: 80, motor: JSON.parse(JSON.stringify(V.DEFAULT_MOTOR)) },
-    cfg: { horizontalDrift: 2, pathMode: 'field', mechanismWait: 0, startFromCode: true, solidGoals: true },
+    cfg: { horizontalDrift: 2, pathMode: 'field', mechanismWait: 0, startFromCode: true, solidGoals: false },
     aligners: JSON.parse(JSON.stringify(V.DEFAULT_ALIGNERS)),
     goals: { ...V.GOAL_DEFAULTS },
-    real: { enabled: true },
+    real: { enabled: false, mult: 1 },
     chassis: JSON.parse(JSON.stringify(V.DEFAULT_CHASSIS)),
     lateral: { ...V.DEFAULT_LATERAL },
     angular: { ...V.DEFAULT_ANGULAR },
@@ -21,6 +21,7 @@
     routine: '',
     autonLimit: 15,
     fieldStyle: 'photo-match',
+    defaultsV: 2, // 2: real-life error, aligners and solid goals start off
   };
   const clone = (o) => JSON.parse(JSON.stringify(o));
   let S = clone(DEFAULTS);
@@ -140,6 +141,8 @@
     $('pathMode').value = S.cfg.pathMode;
     $('pathModeNote').innerHTML = PATH_MODE_NOTES[S.cfg.pathMode];
     $('realOn').checked = !!S.real.enabled;
+    updateRealUi();
+    updateSolidUi();
     $('startFromCode').checked = !!S.cfg.startFromCode;
     $('solidGoals').checked = !!S.cfg.solidGoals;
     renderAlignSummary();
@@ -332,8 +335,8 @@
     return {
       robot: S.robot,
       start: S.start,
-      realism: { enabled: S.real.enabled, seed, chassis: S.chassis },
-      world: S.cfg.solidGoals ? { goals: S.goals, aligners: S.aligners } : null,
+      realism: { enabled: S.real.enabled, seed, chassis: S.chassis, mult: S.real.mult },
+      world: worldOn() ? { goals: S.goals, aligners: S.aligners } : null,
       startFromSetPose: S.cfg.startFromCode,
       cfg: { lateral: S.lateral, angular: S.angular, trackWidth: S.robot.trackWidth, horizontalDrift: S.cfg.horizontalDrift, pathMode: S.cfg.pathMode },
       paths: paths.map((p) => ({
@@ -573,9 +576,9 @@
       paths: $('optPaths').checked ? previewPaths() : null,
       edit: $('optPaths').checked || V.PathTool.tool() === 'edit' ? V.PathTool.drawState() : null,
       codeAxes: $('optAxes').checked ? { x: startFrame().px, y: startFrame().py, h: (startFrame().psi * 180) / Math.PI } : null,
-      aligners: S.cfg.solidGoals && hasAligners() ? S.aligners : null,
+      aligners: hasAligners() ? S.aligners : null,
     };
-    const goals = S.cfg.solidGoals ? currentGoals() : [];
+    const goals = worldOn() ? currentGoals() : [];
     if (f) {
       state.pose = { x: f.x[idx], y: f.y[idx], h: f.h[idx] };
       state.hit = !!f.hit[idx];
@@ -624,7 +627,7 @@
     const off = S.real.enabled ? `  (off by ${Math.hypot(f.ox[idx] - f.x[idx], f.oy[idx] - f.y[idx]).toFixed(1)} in, ${Math.abs(wrap180(f.oh[idx] - f.h[idx])).toFixed(1)}°)` : '';
     $('tCode').textContent = `${f.cx[idx].toFixed(1)}, ${f.cy[idx].toFixed(1)}  ${f.ct[idx].toFixed(0)}°${off}`;
     const alText = ['front', 'back']
-      .filter((k) => S.cfg.solidGoals && S.aligners[k].on && S.aligners[k].shapes.length)
+      .filter((k) => S.aligners[k].on && S.aligners[k].shapes.length)
       .map((k) => {
         const g = f[k === 'front' ? 'alF' : 'alB'][idx];
         return `${k}: ${g >= 0 ? 'aligned (goal ' + (g + 1) + ')' : 'no'}`;
@@ -782,7 +785,16 @@
       // the "drawn" field was removed; settings saved with it fall back to the match field
       if (S.fieldStyle !== 'photo-skills') S.fieldStyle = 'photo-match';
       // the error sizes are no longer settings (they come from the chassis); only on / off is kept
-      S.real = { enabled: S.real.enabled !== false };
+      S.real = { enabled: S.real.enabled === true, mult: Math.min(5, Math.max(0.1, Number(S.real.mult) || 1)) };
+      // settings saved before the defaults changed: error and solid goals off, aligners off until something is drawn
+      if (saved.S.defaultsV !== 2) {
+        S.real.enabled = false;
+        S.cfg.solidGoals = false;
+        ['front', 'back'].forEach((k) => {
+          if (S.aligners[k] && !(S.aligners[k].shapes || []).length) S.aligners[k].on = false;
+        });
+        S.defaultsV = 2;
+      }
       S.chassis = V.sanitizeChassis(S.chassis);
       S.aligners = V.sanitizeAligners(S.aligners);
       S.robot.motor = V.sanitizeMotor(S.robot.motor);
@@ -919,12 +931,14 @@
     // aligners and goals
     $('solidGoals').addEventListener('change', (e) => {
       S.cfg.solidGoals = e.target.checked;
+      updateSolidUi();
       settingsChanged();
     });
     const alignEditor = V.AlignerEditor.init({
       $,
       get: () => ({ aligners: S.aligners, robot: S.robot, chassis: S.chassis, goals: S.goals }),
       changed: () => {
+        updateSolidUi();
         renderAlignSummary();
         settingsChanged();
       },
@@ -936,7 +950,9 @@
     chassisView = new V.ChassisView($('chassisCanvas'));
     chassisView.onToggle = (side, i) => {
       const list = S.chassis[side];
-      list[i] = list[i] === 'omni' ? 'traction' : 'omni';
+      // omni -> traction -> blank -> omni; the last wheel on a side cannot be blanked
+      const next = { omni: 'traction', traction: 'none', none: 'omni' }[list[i]] || 'omni';
+      list[i] = next === 'none' && list.filter((t, j) => j !== i && t !== 'none').length === 0 ? 'omni' : next;
       if (S.chassis.mirror) S.chassis[side === 'left' ? 'right' : 'left'] = list.slice();
       renderChassisUi();
       settingsChanged();
@@ -969,6 +985,13 @@
     });
     $('realOn').addEventListener('change', (e) => {
       S.real.enabled = e.target.checked;
+      updateRealUi();
+      settingsChanged();
+    });
+    $('realMult').addEventListener('input', (e) => {
+      const n = parseFloat(e.target.value);
+      if (!isFinite(n)) return;
+      S.real.mult = Math.min(5, Math.max(0.1, n));
       settingsChanged();
     });
     ['optTrail', 'optPaths', 'optAxes', 'optAim', 'optOdom'].forEach((id) => $(id).addEventListener('change', requestDraw));
@@ -1006,6 +1029,25 @@
   // ------------------------------------------------------------------ aligners, goals, run history
 
   const hasAligners = () => ['front', 'back'].some((k) => S.aligners[k].on && S.aligners[k].shapes.length);
+  /** goals and walls are solid when asked for, and always while aligners are on (they are no use otherwise) */
+  const worldOn = () => !!S.cfg.solidGoals || hasAligners();
+
+  function updateSolidUi() {
+    const box = $('solidGoals');
+    if (!box) return;
+    const forced = hasAligners();
+    box.checked = forced || !!S.cfg.solidGoals;
+    box.disabled = forced;
+    why(box, forced ? 'Ticked and greyed out because goal aligners are on: they only work if the goals are solid. Turn the aligners off to untick this.' : '');
+  }
+
+  function updateRealUi() {
+    const m = $('realMult');
+    if (!m) return;
+    m.value = S.real.mult;
+    m.disabled = !S.real.enabled;
+    why(m, S.real.enabled ? '' : 'Greyed out because "simulate real-life error" is off: tick it to set how big the errors are.');
+  }
 
   /** the solid goals at the sizes in the settings (rebuilt only when a size changes) */
   function currentGoals() {
@@ -1204,37 +1246,22 @@
       renderChassisUi();
       settingsChanged();
     };
-    const opts = (cur) => Object.keys(V.WHEEL_TYPES).map((k) => `<option value="${k}"${k === cur ? ' selected' : ''}>${V.WHEEL_TYPES[k].label}</option>`).join('');
+    const opts = (cur) => V.WHEEL_CHOICES.map((k) => `<option value="${k}"${k === cur ? ' selected' : ''}>${V.WHEEL_CHOICE_LABEL[k]}</option>`).join('');
     const row = (side, label) => {
       const list = c[side];
       const div = document.createElement('div');
       div.className = 'wrow';
-      div.innerHTML = `<span>${label}</span>` + list.map((t, i) => `<select data-i="${i}" aria-label="${label} wheel ${i + 1}">${opts(t)}</select>`).join('') +
-        `<button class="btn" type="button" data-act="del" title="Remove the last wheel"${list.length <= 2 ? ' disabled' : ''}>&minus;</button>` +
-        `<button class="btn" type="button" data-act="add" title="Add a wheel at the back"${list.length >= V.MAX_WHEELS_PER_SIDE ? ' disabled' : ''}>+</button>`;
+      div.innerHTML = `<span>${label}</span>` + list.map((t, i) => `<select data-i="${i}" aria-label="${label} position ${i + 1} from the front">${opts(t)}</select>`).join('');
       div.querySelectorAll('select').forEach((sel) => sel.addEventListener('change', () => {
         S.chassis[side][+sel.dataset.i] = sel.value;
         if (S.chassis.mirror && side === 'left') S.chassis.right = S.chassis.left.slice();
         change();
       }));
-      div.querySelector('[data-act=add]').addEventListener('click', () => {
-        S.chassis[side].push(S.chassis[side][S.chassis[side].length - 1]);
-        if (S.chassis.mirror) S.chassis.right = S.chassis.left.slice();
-        change();
-      });
-      div.querySelector('[data-act=del]').addEventListener('click', () => {
-        S.chassis[side].pop();
-        if (S.chassis.mirror) S.chassis.right = S.chassis.left.slice();
-        change();
-      });
       host.appendChild(div);
-      const limits = [];
-      if (list.length <= 2) limits.push('A side needs at least 2 wheels, so the \u2212 button is off.');
-      if (list.length >= V.MAX_WHEELS_PER_SIDE) limits.push(`At most ${V.MAX_WHEELS_PER_SIDE} wheels a side, so the + button is off.`);
-      if (limits.length) {
+      if (list.filter((t) => t !== 'none').length <= 1) {
         const n = document.createElement('p');
         n.className = 'whynote';
-        n.textContent = limits.join(' ');
+        n.textContent = 'Only one wheel is left on this side, so the others can not all be blanked: pick Omni or Traction at a blank position to add one back.';
         host.appendChild(n);
       }
     };

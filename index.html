@@ -139,12 +139,13 @@
       <canvas id="chassisCanvas" class="chassiscv" aria-label="Top-down drawing of the chassis on an inch grid"></canvas>
       <div id="chassisControls" class="chassisctl"></div>
       <p class="note" id="chassisInfo"></p>
-      <p class="note">Front of the robot is up. Click a wheel in the drawing to switch it between omni and traction. Wheel size is the wheel diameter above; the robot length and track width set where the wheels sit.</p>
+      <p class="note">Front of the robot is up. There are 4 wheel positions a side (8 in all). Pick <b>Omni</b>, <b>Traction</b> or <b>Blank</b> for each, or click a wheel in the drawing to step through them. A 4WD is just four blanks. A blank position has no wheel. Wheel size is the wheel diameter above; the robot length and track width set where the wheels sit.</p>
     </details>
 
     <details class="sec" data-tab="aligners" open>
       <summary>Goal aligners <span class="aside">hit the goals</span></summary>
       <label class="check realtoggle"><input type="checkbox" id="solidGoals"> goals and walls are solid (the robot hits them)</label>
+      <p class="note">Off by default. It switches itself on while any aligners are on, because aligners need solid goals to push against. This is separate from the real-life error below: a perfect robot can still hit a goal.</p>
       <div id="alignSummary" class="aligns"></div>
       <div class="actions">
         <button id="btnAlignFront" class="btn" type="button">Edit front aligners</button>
@@ -158,7 +159,9 @@
     <details class="sec" data-tab="aligners" open>
       <summary>Real-life error <span class="aside">gyro drift + wheel slip</span></summary>
       <label class="check realtoggle"><input type="checkbox" id="realOn"> simulate real-life error</label>
-      <p class="note">On: every Run gives the robot a new random draw (its gyro has a bias, a turn-rate error and noise; the floor grip changes a little), so results vary from run to run like on a real field. How big the errors are comes from the Chassis above: traction wheels grip and slide less, tracking wheels keep the odometry right when the drive wheels slip. Changing a setting re-runs with the same draw. The odometry only sees the wheels and the gyro, so it slowly disagrees with where the robot really is. <code>setPose()</code> resets it, like a wall reset. Off: a perfect robot.</p>
+      <label class="field"><span>Error size (x)</span><input type="number" id="realMult" step="0.1" min="0.1" max="5" inputmode="decimal" value="1"></label>
+      <p class="note">Error size scales every error at once: 1 is a typical robot, 2 is twice the gyro drift, noise and wheel slip with less grip (a worst case), 0.5 is half.</p>
+      <p class="note">On: every Run gives the robot a new random draw (its gyro has a bias, a turn-rate error and noise; the floor grip changes a little), so results vary from run to run like on a real field. How big the errors are comes from the Chassis above: traction wheels grip and slide less, tracking wheels keep the odometry right when the drive wheels slip. Changing a setting re-runs with the same draw. The odometry only sees the wheels and the gyro, so it slowly disagrees with where the robot really is. <code>setPose()</code> resets it, like a wall reset. Off (the default): a perfect robot, no odometry error and no slip.</p>
     </details>
 
     <details class="sec" data-tab="paths" open>
