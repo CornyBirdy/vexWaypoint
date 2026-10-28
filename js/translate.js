@@ -126,10 +126,12 @@
     return funcs;
   }
 
+  // lemlib::Omniwheel constants (LemLib docs, "Configuration"): the real diameters, not the marketed ones
   const OMNI = {
-    NEW_275: 2.75, OLD_275: 2.75, NEW_275_HALF: 2.75, OLD_275_HALF: 2.75,
-    NEW_325: 3.25, OLD_325: 3.25, NEW_325_HALF: 3.25, OLD_325_HALF: 3.25,
-    NEW_4: 4, OLD_4: 4, NEW_4_HALF: 4, OLD_4_HALF: 4,
+    NEW_2: 2.125,
+    NEW_275: 2.75, OLD_275: 2.75, NEW_275_HALF: 2.744, OLD_275_HALF: 2.74,
+    NEW_325: 3.25, OLD_325: 3.25, NEW_325_HALF: 3.246, OLD_325_HALF: 3.246,
+    NEW_4: 4, OLD_4: 4.18, NEW_4_HALF: 3.995, OLD_4_HALF: 4.175,
   };
 
   function numArg(s) {
@@ -155,6 +157,22 @@
         wheelDiameter: numArg(a[3]),
         rpm: numArg(a[4]),
         horizontalDrift: numArg(a[5]),
+      };
+    }
+    // odometry setup: tracking wheels (offset from the tracking centre) and which of them / the IMU go into OdomSensors
+    const wheels = {};
+    const reTw = /\bTrackingWheel\s+(\w+)\s*[({]([^;]*?)[)}]\s*;/g;
+    while ((m = reTw.exec(clean))) wheels[m[1]] = { offset: numArg(splitTopLevel(m[2])[2]) };
+    const reOs = /\bOdomSensors\s+(\w+)\s*[({]([^;]*?)[)}]\s*;/;
+    if ((m = reOs.exec(clean))) {
+      const a = splitTopLevel(m[2]).map((x) => x.replace(/^[\s&*]+/, '').trim());
+      const used = (x) => !!x && !/^(nullptr|NULL|0)$/.test(x);
+      const off = (x) => (wheels[x] && wheels[x].offset != null ? wheels[x].offset : 0);
+      cfg.odom = {
+        vertical: used(a[0]) ? { on: true, offset: off(a[0]) } : { on: false },
+        second: used(a[1]),
+        horizontal: used(a[2]) ? { on: true, offset: off(a[2]) } : { on: false },
+        imu: used(a[4]),
       };
     }
     const settings = {};
@@ -286,6 +304,8 @@
     s = s.replace(/\bsetPose\s*\(\s*\{([^{}]*)\}/g, 'setPose(Pose($1)');
     s = s.replace(/\bPose\s+([A-Za-z_]\w*)\s*\{([^{}]*)\}/g, 'Pose $1($2)');
     s = s.replace(/\bPose\s*\{([^{}]*)\}/g, 'Pose($1)');
+    // a brace list passed as an argument, `avg({1, 2, 3})`: an array (empty `{}` and `{.a = 1}` params are left alone)
+    s = s.replace(/([(,]\s*)\{(\s*[^\s{}:][^{}:]*)\}/g, '$1[$2]');
     // C++-only syntax
     s = s.replace(/\b(?:static|reinterpret|const|dynamic)_cast\s*<[^>]*>/g, '');
     s = s.replace(/\(\s*(?:unsigned\s+)?(?:int|float|double|bool|long|short|size_t)\s*\)/g, '');
@@ -303,16 +323,23 @@
     s = s.replace(declNum, '$1let $2');
     s = s.replace(/\blet\s+(\w+)\s*\[[^\]]*\]\s*=\s*\{([^}]*)\}/g, 'let $1 = [$2]');
     // `Pose p(1, 2, 3);`  and  `Foo bar(args);`
-    s = s.replace(/(^|[;{}\n])(\s*)([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*\(([^()]*)\)\s*;/g, (all, pre, ws, type, name, args) => {
-      if (KEYWORDS.has(type)) return all;
-      if (type === 'Pose') return `${pre}${ws}let ${name} = Pose(${args});`;
-      return `${pre}${ws}let ${name} = NOOP;`;
-    });
+    // (a match eats the `;` that the next declaration on the same line starts after, so go round again)
+    for (let pass = 0, prev = ''; pass < 6 && prev !== s; pass++) {
+      prev = s;
+      s = s.replace(/(^|[;{}\n])(\s*)([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*\(([^()]*)\)\s*;/g, (all, pre, ws, type, name, args) => {
+        if (KEYWORDS.has(type)) return all;
+        if (type === 'Pose' || type === 'Timer' || type === 'PID') return `${pre}${ws}let ${name} = ${type}(${args});`;
+        return `${pre}${ws}let ${name} = NOOP;`;
+      });
+    }
     // `Foo bar = expr;`  and  `Foo bar;`
-    s = s.replace(/(^|[;{}\n])(\s*)([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*(=(?!=)|;)/g, (all, pre, ws, type, name, tail) => {
-      if (KEYWORDS.has(type)) return all;
-      return `${pre}${ws}let ${name} ${tail === ';' ? '= NOOP;' : '='}`;
-    });
+    for (let pass = 0, prev = ''; pass < 6 && prev !== s; pass++) {
+      prev = s;
+      s = s.replace(/(^|[;{}\n])(\s*)([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*(=(?!=)|;)/g, (all, pre, ws, type, name, tail) => {
+        if (KEYWORDS.has(type)) return all;
+        return `${pre}${ws}let ${name} ${tail === ';' ? '= NOOP;' : '='}`;
+      });
+    }
 
     s = bracesToArrays(s);
     s = guardWhileLoops(s);

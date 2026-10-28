@@ -28,7 +28,9 @@
     left: ['omni', 'traction', 'omni'],
     mirror: true,
     right: ['omni', 'traction', 'omni'],
-    tracking: { vertical: { on: false, offset: 3 }, horizontal: { on: false, offset: -2 } },
+    imu: true, // heading from the inertial sensor; without it LemLib uses the wheels
+    // `second`: a second forward tracking wheel on the other side (two of them can give the heading without an IMU)
+    tracking: { vertical: { on: false, offset: 3 }, horizontal: { on: false, offset: -2 }, second: false },
   };
 
   const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -42,13 +44,14 @@
       const ok = (Array.isArray(list) ? list : []).filter((t) => WHEEL_TYPES[t]).slice(0, MAX_PER_SIDE);
       return ok.length ? ok : fallback;
     };
-    const out = { left: side(ch.left, base.left), mirror: ch.mirror !== false, tracking: base.tracking };
+    const out = { left: side(ch.left, base.left), mirror: ch.mirror !== false, imu: ch.imu !== false, tracking: base.tracking };
     out.right = out.mirror ? out.left.slice() : side(ch.right, out.left.slice());
     const t = ch.tracking || {};
     ['vertical', 'horizontal'].forEach((k) => {
       const w = t[k] || {};
       out.tracking[k] = { on: !!w.on, offset: Math.max(-12, Math.min(12, num(w.offset, base.tracking[k].offset))) };
     });
+    out.tracking.second = !!t.second;
     return out;
   }
 
@@ -69,7 +72,9 @@
 
   /**
    * What the chassis does on the floor.
-   * @returns {{grip:number, latGrip:number, scrub:number, spread:number, tracking:object, wheels:number}}
+   * @returns {{grip:number, latGrip:number, scrub:number, spread:number, tracking:object, imu:boolean, heading:string, wheels:number}}
+   * `heading` is where the odometry heading comes from: 'imu', 'wheels' (two forward tracking wheels, no IMU)
+   * or 'drive' (the drive wheel encoders, which slip and scrub).
    */
   function derive(ch, p) {
     const c = sanitize(ch);
@@ -85,6 +90,10 @@
       // turning drags every wheel sideways; a wheel far from the centre, with sideways grip, resists most
       scrub: 1 + (0.5 * mean((w) => WHEEL_TYPES[w.type].lat * Math.abs(w.y))) / trackWidth,
       tracking: c.tracking,
+      imu: c.imu,
+      heading: c.imu ? 'imu' : c.tracking.vertical.on && c.tracking.second ? 'wheels' : 'drive',
+      // LemLib's docs suggest 2 for an all-omni drivetrain and 8 with traction wheels in the middle
+      driftHint: wheels.some((w) => w.type === 'traction') ? 8 : 2,
     };
   }
 
@@ -92,10 +101,13 @@
   function describe(ch, p) {
     const d = derive(ch, p);
     const odo = [d.tracking.vertical.on && 'forward tracking wheel', d.tracking.horizontal.on && 'sideways tracking wheel'].filter(Boolean);
+    const head = { imu: 'IMU', wheels: 'two forward tracking wheels', drive: 'drive wheel encoders (slip and scrub fool it, LemLib advises against it)' }[d.heading];
     return (
       `${d.wheels} drive wheels. Forward grip ${d.grip.toFixed(2)}, sideways grip ${d.latGrip.toFixed(2)}, ` +
       `turn scrub x${d.scrub.toFixed(2)}, grip changes ${d.spread.toFixed(1)}% per run. ` +
-      `Odometry: ${odo.length ? odo.join(' + ') + ' + gyro' : 'drive wheel encoders + gyro (wheel slip fools it)'}.`
+      `Odometry: ${odo.length ? odo.join(' + ') : 'drive wheel encoders (wheel slip fools it)'}; heading from ${head}. ` +
+      `LemLib's docs suggest a horizontal drift of ${d.driftHint} for this wheel mix` +
+      (d.tracking.horizontal.on ? '.' : ' and recommend a sideways tracking wheel on an all-omni drive.')
     );
   }
 

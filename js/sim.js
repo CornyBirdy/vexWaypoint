@@ -114,6 +114,7 @@
       // drawn once per run, always in this order
       biasDegPerS: (drift / 60) * rng.randn(),
       scale: (Math.max(0, n('gyroScale')) / 100) * rng.randn(),
+      heading: o.heading || (d ? d.heading : 'imu'),
       trkScaleV: (Math.max(0, n('trackScale')) / 100) * rng.randn(),
       trkScaleH: (Math.max(0, n('trackScale')) / 100) * rng.randn(),
       tracking,
@@ -231,9 +232,16 @@
 
         // --- sensors: the gyro sees the real rotation (scale error + drift + noise), the encoders see
         // how far the wheels turned, not how far the robot moved
-        const dth = (w * (1 + re.scale) + this.gyroBias) * dt; // what the gyro adds this step
+        // what the heading sensor adds this step: the IMU (scale error, drift), two forward tracking wheels
+        // (the real rotation, tiny size error) or the drive encoders (they count wheelspin and scrub)
+        const dth =
+          re.heading === 'imu'
+            ? (w * (1 + re.scale) + this.gyroBias) * dt
+            : re.heading === 'wheels'
+              ? w * (1 + re.trkScaleV) * dt
+              : ((this.vL - this.vR) / p.trackWidth) * dt;
         this.gyro += dth;
-        const shNew = this.gyro + this.gyroNoise + this.shOff;
+        const shNew = this.gyro + (re.heading === 'imu' ? this.gyroNoise : 0) + this.shOff;
         const shm = (this.sh + shNew) / 2;
         // forward travel: a free-rolling tracking wheel measures how far the robot really went (also when
         // it is held against a wall); without one the drive encoders are used, and they count wheelspin.
@@ -302,7 +310,108 @@
       theta,
       distance: (o) => Math.hypot(o.x - x, o.y - y),
       angle: (o) => Math.atan2(o.y - y, o.x - x),
+      lerp: (o, t) => poseCtor(x + (o.x - x) * t, y + (o.y - y) * t, theta),
+      rotate: (a) => poseCtor(x * Math.cos(a) - y * Math.sin(a), x * Math.sin(a) + y * Math.cos(a), theta),
     };
+  }
+
+  // lemlib utility functions (docs: API > Utils), so code that calls them keeps working
+  const wrapAngle = (a, max) => a - max * Math.round(a / max);
+  const lemUtils = {
+    sanitizeAngle: (a, radians = true) => {
+      const full = radians ? 2 * Math.PI : 360;
+      return ((a % full) + full) % full;
+    },
+    angleError: (target, position, radians = true, direction = 'AUTO') => {
+      const full = radians ? 2 * Math.PI : 360;
+      const e = wrapAngle(target - position, full);
+      if (direction === 'CW_CLOCKWISE') return e < 0 ? e + full : e;
+      if (direction === 'CCW_COUNTERCLOCKWISE') return e > 0 ? e - full : e;
+      return e;
+    },
+    avg: (v) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0),
+    ema: (cur, prev, smooth) => cur * smooth + prev * (1 - smooth),
+    slew: (target, current, maxChange) => (maxChange ? current + Math.min(maxChange, Math.max(-maxChange, target - current)) : target),
+    // signed curvature of the circle tangent to pose's heading through `other` (theta in radians, standard form)
+    getCurvature: (pose, other) => {
+      const side = Math.sin(pose.theta) * (other.x - pose.x) - Math.cos(pose.theta) * (other.y - pose.y) < 0 ? -1 : 1;
+      const a = -Math.tan(pose.theta);
+      const c = Math.tan(pose.theta) * pose.x - pose.y;
+      const x = Math.abs(a * other.x + other.y + c) / Math.sqrt(a * a + 1);
+      const d = Math.hypot(other.x - pose.x, other.y - pose.y);
+      return d === 0 ? 0 : side * ((2 * x) / (d * d));
+    },
+  };
+
+  /** printf("%d ms, %.1f in", a, b): the format codes are filled in; without a format the arguments are joined */
+  function formatPrintf(args) {
+    const fmt = args[0];
+    if (typeof fmt !== 'string' || !/%/.test(fmt)) return args.join(' ');
+    let i = 1;
+    return fmt.replace(/%(-?\d*)(?:\.(\d+))?(?:l|ll|h|z)?([dioufFeEgGsc%])/g, (all, width, prec, conv) => {
+      if (conv === '%') return '%';
+      const v = args[i++];
+      let out;
+      if (conv === 's' || conv === 'c') out = String(v);
+      else if (conv === 'd' || conv === 'i' || conv === 'u' || conv === 'o') out = String(Math.trunc(Number(v)));
+      else if (/[fF]/.test(conv)) out = Number(v).toFixed(prec === undefined ? 6 : +prec);
+      else out = String(Number(v));
+      return width ? out.padStart(Math.abs(+width)) : out;
+    });
+  }
+
+  /** lemlib::PID (user-facing): integral resets on a sign flip only when signFlipReset is true */
+  function makePid(kP, kI, kD, windupRange = 0, signFlipReset = false) {
+    const pid = { kP, kI, kD, windupRange, signFlipReset, integral: 0, prevError: 0 };
+    pid.update = (error) => {
+      pid.integral += error;
+      if (pid.signFlipReset && (error < 0) !== (pid.prevError < 0)) pid.integral = 0;
+      if (pid.windupRange !== 0 && Math.abs(error) > pid.windupRange) pid.integral = 0;
+      const derivative = error - pid.prevError;
+      pid.prevError = error;
+      return error * pid.kP + pid.integral * pid.kI + derivative * pid.kD;
+    };
+    pid.reset = () => {
+      pid.integral = 0;
+      pid.prevError = 0;
+    };
+    return pid;
+  }
+
+  /** lemlib::Timer on the simulated clock (ms); counts down from the time it was set */
+  function makeTimer(clock, time = 0) {
+    let set = time;
+    let started = clock.now;
+    let pausedLeft = null;
+    const left = () => (pausedLeft !== null ? pausedLeft : Math.max(0, set - (clock.now - started)));
+    const t = {
+      getTimeSet: () => set,
+      getTimeLeft: left,
+      getTimePassed: () => set - left(),
+      isDone: () => left() <= 0,
+      isPaused: () => pausedLeft !== null,
+      set: (ms) => {
+        set = ms;
+        started = clock.now;
+        pausedLeft = null;
+      },
+      reset: () => {
+        started = clock.now;
+        pausedLeft = null;
+      },
+      pause: () => {
+        if (pausedLeft === null) pausedLeft = left();
+      },
+      resume: () => {
+        if (pausedLeft !== null) {
+          set = pausedLeft;
+          started = clock.now;
+          pausedLeft = null;
+        }
+      },
+      waitUntilDone: () => clock.sleep(left()),
+    };
+    return t;
   }
 
   /**
@@ -335,6 +444,12 @@
     const stuckMs = opts && opts.mechanismWaitMs != null ? opts.mechanismWaitMs : 0;
     const def = (v, d) => (v === undefined || v === null ? d : v);
     let poseDeclared = false;
+    // LemLib's docs: "don't attempt to turn the chassis to points within 10 inches of the chassis"
+    const nearPoint = (name, x, y) => {
+      const p = ch.getPose();
+      const d = Math.hypot(x - p.x, y - p.y);
+      if (isFinite(d) && d < 10) log('warn', `${name}(${+x.toFixed(1)}, ${+y.toFixed(1)}) is only ${d.toFixed(1)} in from the robot; LemLib advises against turning to points within 10 in (the heading is unstable that close)`);
+    };
     // loops that really wait on time or on the drivetrain
     const realWait = new RegExp('millis|isInMotion|waitUntil|getPose|Pose|odom|\\b(?:' + chassisNames.map((n) => n.replace(/\W/g, '')).join('|') + ')\\b');
 
@@ -362,16 +477,21 @@
         return { x: p.x, y: p.y, theta: th, heading: th };
       },
       calibrate: () => {},
-      resetLocalPosition: () => {},
+      resetLocalPosition: () => ch.resetLocalPosition(),
       setBrakeMode: () => {},
       moveToPoint: (x, y, timeout, params, a) => ch.moveToPoint(x, y, def(timeout, 10000), params, def(a, true)),
       moveToPose: (x, y, th, timeout, params, a) => ch.moveToPose(x, y, th, def(timeout, 10000), params, def(a, true)),
       turnToHeading: (th, timeout, params, a) => ch.turnToHeading(th, def(timeout, 10000), params, def(a, true)),
-      turnToPoint: (x, y, timeout, params, a) => ch.turnToPoint(x, y, def(timeout, 10000), params, def(a, true)),
+      turnToPoint: (x, y, timeout, params, a) => {
+        nearPoint('turnToPoint', x, y);
+        return ch.turnToPoint(x, y, def(timeout, 10000), params, def(a, true));
+      },
       swingToHeading: (th, side, timeout, params, a) =>
         ch.swingToHeading(th, side, def(timeout, 10000), params, def(a, true)),
-      swingToPoint: (x, y, side, timeout, params, a) =>
-        ch.swingToPoint(x, y, side, def(timeout, 10000), params, def(a, true)),
+      swingToPoint: (x, y, side, timeout, params, a) => {
+        nearPoint('swingToPoint', x, y);
+        return ch.swingToPoint(x, y, side, def(timeout, 10000), params, def(a, true));
+      },
       follow: (path, lookahead, timeout, forwards, a) => {
         if (!path || !path.__path) throw new Error('follow(): first argument is not a loaded path file');
         const { pts, endIdx } = path.getPath(ch);
@@ -428,7 +548,10 @@
           } else if (++n > 200000) throw new Error('A while-loop is spinning without a delay() - add pros::delay(10)');
         };
       })(),
-      printf: (...a) => log('print', a.join(' ')),
+      printf: (...a) => log('print', formatPrintf(a)),
+      ...lemUtils,
+      Timer: (ms) => makeTimer(clock, ms),
+      PID: makePid,
       M_PI: Math.PI,
       degToRad: (d) => d * D2R,
       radToDeg: (r) => r * R2D,
@@ -645,7 +768,8 @@
     const stats = robot.real ? realStats(robot, F) : null;
     if (stats) {
       log('info', `Real-life error (seed ${robot.real.seed}): odometry ends ${stats.endPosErr.toFixed(1)} in and ${stats.endHeadErr.toFixed(1)}\u00b0 off the real robot (worst ${stats.maxPosErr.toFixed(1)} in, ${stats.maxHeadErr.toFixed(1)}\u00b0).`);
-      log('info', `  gyro: ${(robot.real.biasDegPerS * 60).toFixed(2)}\u00b0/min drift, ${(robot.real.scale * 100).toFixed(2)}% turn-rate error.  wheels: ${stats.slipDist.toFixed(1)} in of slip, fastest sideways slide ${stats.maxSlide.toFixed(1)} in/s, grip x${robot.real.gripMul.toFixed(2)}.`);
+      const heading = robot.real.heading === 'imu' ? `gyro: ${(robot.real.biasDegPerS * 60).toFixed(2)}\u00b0/min drift, ${(robot.real.scale * 100).toFixed(2)}% turn-rate error` : `heading from ${robot.real.heading === 'wheels' ? 'two forward tracking wheels' : 'the drive wheel encoders'}`;
+      log('info', `  ${heading}.  wheels: ${stats.slipDist.toFixed(1)} in of slip, fastest sideways slide ${stats.maxSlide.toFixed(1)} in/s, grip x${robot.real.gripMul.toFixed(2)}.`);
     }
     const missing = Array.from(scope.__unknownCalls || []).filter((n) => !/^(printf|print|lcd|puts)$/.test(n));
     if (missing.length) log('info', `Not defined in your code, so skipped: ${missing.map((n) => n + '()').join(', ')}. If one moves the robot, paste its definition too.`);

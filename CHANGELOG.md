@@ -45,6 +45,17 @@ grouped by date.
   `setPose(pose)`. `Pose p{x, y, theta};` declarations are understood. `getPose(radians, standardPosition)` works.
 - The **Waypoint logo**: a banner at the top of the README, a start-up splash (shown once per browser session,
   click to skip) and a link-preview image.
+- Chassis: choose whether the robot has an **IMU**. Without one the odometry heading comes from the wheels: two
+  forward tracking wheels keep it good, drive wheel encoders get it wrong by the wheel slip and scrub (as the
+  LemLib docs warn). The chassis summary also shows the horizontal drift LemLib's docs suggest for your wheel
+  mix (2 for all omni, 8 with traction wheels).
+- **Import settings from code** now also reads `lemlib::TrackingWheel` offsets and the `lemlib::OdomSensors`
+  line (forward / sideways tracking wheels, IMU) into the Chassis panel.
+- Checked against the LemLib documentation: `chassis.resetLocalPosition()` now works (it did nothing before),
+  and the `lemlib` helpers `Pose.lerp` / `Pose.rotate`, `sanitizeAngle`, `angleError`, `avg`, `ema`, `slew`,
+  `getCurvature`, `Timer` and `PID` exist in the sim. `printf` fills in `%d`, `%f`, `%s` formats.
+- The run log warns when `turnToPoint` / `swingToPoint` aims at a point within 10 in of the robot (the docs
+  advise against it).
 - This changelog, also shown in the app: the **Changelog** button in the top bar opens it (with a dot until you
   have seen the newest entries).
 
@@ -65,6 +76,10 @@ grouped by date.
 - The "drawn" field picture. Only the match and skills pictures remain (a saved "drawn" setting becomes match).
 
 ### Fixed
+- The `lemlib::Omniwheel` diameters were wrong (`OLD_4` is 4.18 in, the `_HALF` sizes differ slightly,
+  `NEW_2` was missing); they now match the LemLib docs.
+- Two declarations on one line (`lemlib::Pose a(0, 0, 0); lemlib::Pose b(1, 1, 0);`) failed to parse.
+- A brace list passed as an argument (`avg({1, 2, 3})`) is understood.
 - Switching the field picture between match and skills could show the "drawn" field for a few seconds while
   the picture loaded. Both pictures now load at start-up, and the old one stays up until the new one is ready.
 - `chassis.setPose(lemlib::Pose(...))`, `setPose(pose)` and `setPose({x, y, theta})` crashed the run or gave

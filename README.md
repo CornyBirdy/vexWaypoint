@@ -72,7 +72,7 @@ Supported files: LemLib v0.4 text (with the ghost point), LemLib Tarball v0.5 an
 
 LemLib 0.5-style calls, with LemLib's blocking rules (`async` defaults to `true`, and starting a new motion waits for the previous one to finish):
 
-`setPose` `getPose` `moveToPoint` `moveToPose` `turnToHeading` `turnToPoint` `swingToHeading` `swingToPoint` `follow` `waitUntil` `waitUntilDone` `cancelMotion` `cancelAllMotions`, plus `pros::delay`, `pros::millis`, designated-initialiser params (`{.forwards = false, .maxSpeed = 80}`), `lemlib::DriveSide::LEFT`, `lemlib::AngularDirection::CW_CLOCKWISE`, simple `int / float / bool` variables, `if`, `for`, `while`, and several `void name()` routines (pick one in the **Routine** menu).
+`setPose` `getPose` `resetLocalPosition` `calibrate` `moveToPoint` `moveToPose` `turnToHeading` `turnToPoint` `swingToHeading` `swingToPoint` `follow` `waitUntil` `waitUntilDone` `cancelMotion` `cancelAllMotions` `isInMotion`, plus the `lemlib` helpers `Pose` (with `distance`, `angle`, `lerp`, `rotate`), `slew`, `sanitizeAngle`, `angleError`, `avg`, `ema`, `getCurvature`, `Timer` and `PID`, plus `pros::delay`, `pros::millis`, designated-initialiser params (`{.forwards = false, .maxSpeed = 80}`), `lemlib::DriveSide::LEFT`, `lemlib::AngularDirection::CW_CLOCKWISE`, simple `int / float / bool` variables, `if`, `for`, `while`, and several `void name()` routines (pick one in the **Routine** menu).
 
 You can paste your **whole `main.cpp`**: the sim finds `autonomous()` (or the first routine with "auto" in its name), runs it, and ignores `initialize()`, `opcontrol()` and the rest. Other `void` functions with a body become helpers you can call (with arguments and default values), and `enum`s, `#define NAME value` and simple global constants are understood. If the file has several routines, pick one in the **Routine** menu; the run log says which one ran and which functions were ignored.
 
@@ -84,7 +84,9 @@ You can also paste just a **list of statements** (no `void autonomous() { ... }`
 Anything on other objects (`intake.move(127)`, `clamp.set_value(true)`, `pros::lcd::print(...)`, ...) is ignored, and lambdas / `pros::Task` bodies are skipped.
 It is a small translator, **not a C++ compiler**: classes, templates and pointer tricks are not supported. If a helper function cannot be translated you get a warning and calls to it are ignored; if the routine itself cannot be parsed the run log points at the line that probably caused it.
 
-**Import drivetrain & gains from code** copies the numbers from your `lemlib::Drivetrain` and `lemlib::ControllerSettings` lines into the sim settings. The LemLib tuning card holds the PID values, exit conditions and slew.
+**Import drivetrain & gains from code** copies the numbers from your `lemlib::Drivetrain`, `lemlib::ControllerSettings` and odometry setup (`lemlib::TrackingWheel` offsets and the `lemlib::OdomSensors` line: forward / sideways tracking wheels and the IMU) into the sim settings and the Chassis panel. The `lemlib::Omniwheel` constants use the diameters from the LemLib docs (for example `OLD_4` is 4.18 in). The LemLib tuning card holds the PID values, exit conditions and slew.
+
+The sim warns in the run log when `turnToPoint` / `swingToPoint` aims at a point within 10 in of the robot (LemLib's docs advise against it). Not simulated: driver control (`tank`, `arcade`, `curvature`, `ExpoDriveCurve`), `setBrakeMode`, the public `lateralPID` / `angularPID` members, and arithmetic on poses (`a + b`, `a * 2`).
 
 ## Things to know (accuracy)
 
@@ -96,6 +98,7 @@ It is a small translator, **not a C++ compiler**: classes, templates and pointer
   * **Sideways slide**: turning at speed needs sideways grip (x g); beyond it the robot slides wide. Omni wheels give little sideways grip, traction wheels a lot, so traction wheels cut the drift.
   * **Turn scrub**: the robot turns a little less than its wheels say (effective track width above the measured one). It grows with sideways grip and with how far the wheels sit from the centre, so a traction wheel in the middle scrubs far less than one at the end.
   * **Consistency**: how much the grip changes from run to run (omni rollers vary more than traction treads).
+  * **Heading source**: with an IMU the heading drifts as above. Without one, LemLib uses the wheels: with two forward tracking wheels the heading is good, with only the drive wheel encoders it is wrong by the wheel slip and scrub (LemLib's docs advise against it). Untick *IMU* in the Chassis panel to see it.
   * **Tracking wheels**: a forward tracking wheel measures how far the robot really travelled, so wheelspin, skids and pushing on a wall no longer fool the odometry; a sideways one also sees sliding. Each has a small size error per run, and an offset from the centre that the code compensates with the gyro (as LemLib does). `chassis.setPose()` resets the odometry error, like a wall reset.
   * The per-wheel numbers (grip, sideways grip, consistency) and the gyro numbers are typical, not measured on your robot: VEX publishes no gyro drift spec, VEX Forum posts report anything from a few tenths of a degree per minute at rest to a few degrees of error per full rotation, and the friction of omni wheels on foam tiles is not well documented either. They are constants in `js/chassis.js` and `js/sim.js`.
   * Not modelled: tracking-wheel lift-off or bounce, wheel diameter error on the drive wheels, battery sag, other robots and bumping into things.

@@ -648,6 +648,16 @@
       if (dt.trackWidth) { S.robot.trackWidth = dt.trackWidth; notes.push(`track ${dt.trackWidth} in`); }
       if (dt.horizontalDrift != null) { S.cfg.horizontalDrift = dt.horizontalDrift; notes.push(`drift ${dt.horizontalDrift}`); }
     }
+    const od = c.config.odom;
+    if (od) {
+      const t = S.chassis.tracking;
+      t.vertical = { on: od.vertical.on, offset: od.vertical.offset != null ? od.vertical.offset : t.vertical.offset };
+      t.horizontal = { on: od.horizontal.on, offset: od.horizontal.offset != null ? od.horizontal.offset : t.horizontal.offset };
+      t.second = od.second;
+      S.chassis.imu = od.imu;
+      S.chassis = V.sanitizeChassis(S.chassis);
+      notes.push(`odometry (${od.imu ? 'IMU' : 'no IMU'}${od.vertical.on ? ', forward wheel' : ''}${od.horizontal.on ? ', sideways wheel' : ''})`);
+    }
     ['lateral', 'angular'].forEach((k) => {
       const src = c.config[k];
       if (!src) return;
@@ -929,6 +939,19 @@
       });
       host.appendChild(div);
     });
+    const extra = document.createElement('div');
+    extra.className = 'wrow';
+    extra.innerHTML = `<label class="check"><input type="checkbox" data-k="imu"${c.imu ? ' checked' : ''}> IMU (inertial sensor) for heading</label>` +
+      `<label class="check"><input type="checkbox" data-k="second"${c.tracking.second ? ' checked' : ''}${c.tracking.vertical.on ? '' : ' disabled'}> second forward tracking wheel (other side)</label>`;
+    extra.querySelector('[data-k=imu]').addEventListener('change', (e) => {
+      S.chassis.imu = e.target.checked;
+      change();
+    });
+    extra.querySelector('[data-k=second]').addEventListener('change', (e) => {
+      S.chassis.tracking.second = e.target.checked;
+      change();
+    });
+    host.appendChild(extra);
     $('chassisInfo').textContent = V.describeChassis(S.chassis, S.robot);
     drawChassis();
   }

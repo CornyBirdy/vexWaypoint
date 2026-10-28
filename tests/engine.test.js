@@ -614,6 +614,70 @@ const angDiff = (a, b) => Math.abs(normDeg(a - b));
     console.log('ok chassis: wheel types, tracking wheels');
   }
 
+  // --- LemLib documentation checks: Omniwheel constants, odometry setup, utilities, resetLocalPosition
+  {
+    const dia = (c) => V.compileAuton(`lemlib::Drivetrain dt(&l, &r, 10.5, lemlib::Omniwheel::${c}, 450, 2); void autonomous() {}`, { language: 'cpp' }).config.drivetrain.wheelDiameter;
+    assert.strictEqual(dia('OLD_4'), 4.18);
+    assert.strictEqual(dia('NEW_4'), 4);
+    assert.strictEqual(dia('NEW_2'), 2.125);
+    assert.strictEqual(dia('NEW_325_HALF'), 3.246);
+    assert.strictEqual(dia('OLD_275_HALF'), 2.74);
+
+    const odomCode = `lemlib::TrackingWheel vert(&enc, lemlib::Omniwheel::NEW_275, -3.5);
+      lemlib::TrackingWheel hor(&enc2, 2.75, 4);
+      lemlib::OdomSensors sensors(&vert, nullptr, &hor, nullptr, &imu);
+      lemlib::OdomSensors bare(nullptr, nullptr, nullptr, nullptr, nullptr);
+      void autonomous() {}`;
+    const od = V.compileAuton(odomCode, { language: 'cpp' }).config.odom;
+    assert.deepStrictEqual(od, { vertical: { on: true, offset: -3.5 }, second: false, horizontal: { on: true, offset: 4 }, imu: true }, 'OdomSensors is read from the code');
+    const od2 = V.compileAuton(odomCode.replace('&imu', 'nullptr').replace('nullptr, &hor', '&vert, &hor'), { language: 'cpp' }).config.odom;
+    assert.strictEqual(od2.imu, false);
+    assert.strictEqual(od2.second, true);
+
+    const out = async (code, extra) => (await run(code, extra)).res.events.filter((e) => e.kind === 'print').map((e) => e.text);
+    let p = await out('printf("%f", lemlib::angleError(10, 350, false)); printf("%f", lemlib::sanitizeAngle(-90, false)); printf("%f", avg({1, 2, 3, 6})); printf("%f", ema(10, 0, 0.5));');
+    assert.deepStrictEqual(p.map(Number), [20, 270, 3, 5], 'utility functions: ' + p);
+    p = await out('printf("%f", lemlib::angleError(350, 10, false, lemlib::AngularDirection::CW_CLOCKWISE)); printf("%f", lemlib::slew(100, 0, 10));');
+    assert.deepStrictEqual(p.map(Number), [340, 10], 'angleError direction, slew: ' + p);
+    // getCurvature: a point straight ahead has none; one to the right at 45 degrees is clockwise (positive)
+    p = await out('lemlib::Pose a(0, 0, M_PI / 2); lemlib::Pose b(0, 10, 0); lemlib::Pose c(10, 10, 0); printf("%f", lemlib::getCurvature(a, b)); printf("%f", lemlib::getCurvature(a, c));');
+    near(Number(p[0]), 0, 1e-9, 'straight ahead has no curvature');
+    assert(Number(p[1]) > 0.05, 'a point to the right curves clockwise: ' + p[1]);
+    p = await out('lemlib::Timer t(300); pros::delay(100); printf("%d", t.getTimeLeft()); pros::delay(250); printf("%d", t.isDone() ? 1 : 0);');
+    assert.deepStrictEqual(p.map(Number), [200, 1], 'Timer runs on the simulated clock: ' + p);
+    p = await out('lemlib::PID pid(2, 0, 1); printf("%f", pid.update(10)); printf("%f", pid.update(4));');
+    assert.deepStrictEqual(p.map(Number), [30, 2], 'PID: ' + p);
+    p = await out('lemlib::Pose a(0, 0, 0); lemlib::Pose b(10, 20, 0); lemlib::Pose m = a.lerp(b, 0.5); printf("%f", m.x); printf("%f", m.y);');
+    assert.deepStrictEqual(p.map(Number), [5, 10], 'Pose.lerp');
+
+    // turnToPoint close to the robot is flagged, as the docs advise
+    t = await run('chassis.turnToPoint(5, 5, 1000, {}, false);');
+    assert(t.res.events.some((e) => e.kind === 'warn' && /within 10 in/.test(e.text)), 'warns about turning to a point within 10 in');
+    t = await run('chassis.turnToPoint(40, 40, 1000, {}, false);');
+    assert(!t.res.events.some((e) => e.kind === 'warn'), 'no warning for a far point');
+
+    // resetLocalPosition: odometry x / y go to 0 and the heading is kept; the robot does not move
+    t = await run('chassis.moveToPoint(0, 24, 3000, {}, false); chassis.resetLocalPosition(); pros::delay(50); lemlib::Pose q = chassis.getPose(); printf("%f", q.y); chassis.moveToPoint(0, 24, 3000, {}, false);');
+    near(Number(t.res.events.find((e) => e.kind === 'print').text), 0, 0.5, 'getPose is 0 after resetLocalPosition');
+    near(t.end.y, 48, 2.5, 'the next move goes 24 in further from where the robot stands');
+
+    // where the heading comes from: the drive wheels scrub, so a heading taken from them is wrong; an IMU is not
+    const zero = { gyroDrift: 0, gyroScale: 0, gyroNoise: 0, trackScale: 0 };
+    const traction = { left: ['traction', 'traction'], mirror: true };
+    const turn = 'chassis.turnToHeading(180, 4000, {}, false);';
+    const withImu = await run(turn, { realism: { enabled: true, seed: 2, chassis: { ...traction, imu: true }, ...zero } });
+    const noImu = await run(turn, { realism: { enabled: true, seed: 2, chassis: { ...traction, imu: false }, ...zero } });
+    const twoWheels = await run(turn, { realism: { enabled: true, seed: 2, chassis: { ...traction, imu: false, tracking: { vertical: { on: true, offset: 3 }, second: true } }, ...zero } });
+    assert(withImu.res.realism.endHeadErr < 1, 'IMU heading is right: ' + withImu.res.realism.endHeadErr);
+    assert(noImu.res.realism.endHeadErr > 4, 'drive-wheel heading is off by the scrub: ' + noImu.res.realism.endHeadErr);
+    assert(twoWheels.res.realism.endHeadErr < 1.5, 'two forward tracking wheels give a good heading: ' + twoWheels.res.realism.endHeadErr);
+    assert(/heading from the drive wheel encoders/.test(noImu.res.events.map((e) => e.text).join('\n')), 'the log says where the heading comes from');
+    const d = V.deriveChassis({ left: ['omni', 'omni'], mirror: true }, ROBOT);
+    assert.strictEqual(d.driftHint, 2);
+    assert.strictEqual(V.deriveChassis({ left: ['omni', 'traction'], mirror: true }, ROBOT).driftHint, 8);
+    console.log('ok LemLib docs checks: Omniwheel, odometry import, utils, Timer, PID, resetLocalPosition, heading source');
+  }
+
   console.log('\nALL ENGINE TESTS PASSED');
 })().catch((e) => {
   console.error('FAILED', e);

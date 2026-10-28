@@ -655,6 +655,11 @@
       r.resetOdometry();
     }
 
+    /** odometry x and y go to 0, the heading is kept (the robot itself does not move) */
+    resetLocalPosition() {
+      this.frame = { px: this.robot.sx, py: this.robot.sy, psi: this.frame.psi };
+    }
+
     drive(l, r) {
       this.robot.cmdL = clamp(l, -127, 127);
       this.robot.cmdR = clamp(r, -127, 127);

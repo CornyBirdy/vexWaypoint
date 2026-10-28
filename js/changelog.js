@@ -50,6 +50,22 @@
               "sub": []
             },
             {
+              "text": "Chassis: choose whether the robot has an **IMU**. Without one the odometry heading comes from the wheels: two forward tracking wheels keep it good, drive wheel encoders get it wrong by the wheel slip and scrub (as the LemLib docs warn). The chassis summary also shows the horizontal drift LemLib's docs suggest for your wheel mix (2 for all omni, 8 with traction wheels).",
+              "sub": []
+            },
+            {
+              "text": "**Import settings from code** now also reads `lemlib::TrackingWheel` offsets and the `lemlib::OdomSensors` line (forward / sideways tracking wheels, IMU) into the Chassis panel.",
+              "sub": []
+            },
+            {
+              "text": "Checked against the LemLib documentation: `chassis.resetLocalPosition()` now works (it did nothing before), and the `lemlib` helpers `Pose.lerp` / `Pose.rotate`, `sanitizeAngle`, `angleError`, `avg`, `ema`, `slew`, `getCurvature`, `Timer` and `PID` exist in the sim. `printf` fills in `%d`, `%f`, `%s` formats.",
+              "sub": []
+            },
+            {
+              "text": "The run log warns when `turnToPoint` / `swingToPoint` aims at a point within 10 in of the robot (the docs advise against it).",
+              "sub": []
+            },
+            {
               "text": "This changelog, also shown in the app: the **Changelog** button in the top bar opens it (with a dot until you have seen the newest entries).",
               "sub": []
             }
@@ -88,6 +104,18 @@
         {
           "name": "Fixed",
           "items": [
+            {
+              "text": "The `lemlib::Omniwheel` diameters were wrong (`OLD_4` is 4.18 in, the `_HALF` sizes differ slightly, `NEW_2` was missing); they now match the LemLib docs.",
+              "sub": []
+            },
+            {
+              "text": "Two declarations on one line (`lemlib::Pose a(0, 0, 0); lemlib::Pose b(1, 1, 0);`) failed to parse.",
+              "sub": []
+            },
+            {
+              "text": "A brace list passed as an argument (`avg({1, 2, 3})`) is understood.",
+              "sub": []
+            },
             {
               "text": "Switching the field picture between match and skills could show the \"drawn\" field for a few seconds while the picture loaded. Both pictures now load at start-up, and the old one stays up until the new one is ready.",
               "sub": []
