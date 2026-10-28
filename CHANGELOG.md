@@ -6,6 +6,10 @@ grouped by date.
 
 ## Unreleased
 
+### Fixed
+- `chassis.setPose(lemlib::Pose(...))`, `setPose(pose)` and `setPose({x, y, theta})` crashed the run or gave
+  `NaN`; the radians flag of `setPose(x, y, rad, true)` was ignored.
+
 ### Added
 - **Real-life error: gyro drift and wheel slip.** The robot now has two poses: where it really is, and where
   its odometry thinks it is. The LemLib motion controllers (and `getPose()`) only see the second one, so the
@@ -27,9 +31,20 @@ grouped by date.
   *odometry ghost* under the field). The `code` readout shows how far off it is.
 - The run log ends with a summary: final and worst odometry error, the gyro's drift and scale error, total
   wheel slip, the fastest sideways slide.
+- `chassis.setPose()` **at the start of the code now sets where the robot starts** (field coordinates, compass
+  heading). The Start pose panel follows it, and the code axes move with it. Untick *take the start pose from
+  setPose()* to place the robot by hand. A `setPose()` after the robot has moved still just re-anchors the
+  code's coordinates.
+- `setPose()` accepts every spelling: `setPose(x, y, theta)`, `setPose(x, y, rad, true)`,
+  `setPose(lemlib::Pose(x, y, theta))`, `setPose(lemlib::Pose{x, y, theta})`, `setPose({x, y, theta})` and
+  `setPose(pose)`. `Pose p{x, y, theta};` declarations are understood. `getPose(radians, standardPosition)` works.
 - This changelog.
 
 ### Changed
+- **Lift / claw waits no longer add time.** A loop such as `while (liftPIDEnabled != 1) { pros::delay(20); }`
+  counts as already finished instead of being carried on after 500 ms. The *Lift / claw wait* setting now
+  defaults to 0 (a saved 500 is reset to 0); set it above 0 to make every such wait cost that many ms.
+  Loops that do other work, and waits on the drivetrain, behave as before.
 - Real-life error is **on by default** with typical V5 values, so results differ slightly from earlier
   versions. Untick *simulate gyro drift and wheel slip* (or set every value to 0) to get the old, perfect
   robot back; with everything off the output is identical to before.

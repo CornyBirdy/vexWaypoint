@@ -29,7 +29,8 @@ There is no build step, so there is no `rebuild.bat`.
 ## Using the sim
 
 1. **Start pose** - set X / Y / heading on the field (or drag the dashed robot; drag the yellow handle to turn it).
-   **`0, 0, 0` in your code is that pose**: `+y` is straight ahead of the robot, `+x` is to its right, heading `0°` is its starting direction. A `chassis.setPose(...)` in the code re-anchors it, like on a real robot. The red / green axes on the field show the code frame.
+   **`0, 0, 0` in your code is that pose**: `+y` is straight ahead of the robot, `+x` is to its right, heading `0°` is its starting direction. The red / green axes on the field show the code frame.
+   **`chassis.setPose(x, y, theta)` at the start of your code sets the start pose** (field coordinates, `theta` is a compass heading, `0°` = up the field), so the robot starts where your code says and the Start pose numbers follow it. Untick *take the start pose from setPose()* to place the robot by hand instead. A `setPose()` after the robot has moved only re-anchors the code's coordinates (the robot stays where it is, like on a real robot) and clears odometry error. All spellings work: `setPose(x, y, theta)`, `setPose(x, y, rad, true)`, `setPose(lemlib::Pose(x, y, theta))`, `setPose({x, y, theta})`, `setPose(pose)`. `getPose(radians, standardPosition)` works too.
 2. **Drivetrain** - wheel diameter, wheel RPM, **real-life speed %** (how much of the theoretical top speed the robot really reaches), track width, robot size, motor response time and LemLib's horizontal drift.
    **Real-life error** - gyro drift, wheel slip, sideways sliding and turn scrub (see below). On by default; untick it for a perfect robot.
 3. **Path files** - drop in whatever jerry.io exported: LemLib `.txt`, a `.jerryio` project, or a LemLib v1.0 binary file. Each gets a name for your code: the file name with non-letters turned into `_`, e.g. `my path.txt` → `my_path_txt`, `curve.jerryio` → `curve_jerryio` (a file with several paths also gets each path's own name). Click the name to copy it.
@@ -76,7 +77,7 @@ You can paste your **whole `main.cpp`**: the sim finds `autonomous()` (or the fi
 
 You can also paste just a **list of statements** (no `void autonomous() { ... }` around it).
 
-**Lift / claw waits.** The sim only runs the drivetrain, so a loop like `while (liftPIDEnabled != 1) { pros::delay(20); }`, which waits for a lift task to finish, would never end. When such a loop is only waiting (no drivetrain motion running, and the condition does not use `pros::millis()`), the sim carries on after **Lift / claw wait** (default 500 ms, in the Drivetrain settings) and says so in the run log.
+**Lift / claw waits.** The sim only runs the drivetrain, so a loop like `while (liftPIDEnabled != 1) { pros::delay(20); }`, which waits for a lift task to finish, would never end. A loop whose body does nothing but `delay()` counts as already finished and **adds no time** (the run log notes it once). Loops that also do something (`while (i < 3) { i++; pros::delay(100); }`) run normally, and so do waits on the drivetrain (`isInMotion()`, `getPose()`, `millis()`). If you want each such wait to cost some time, set **Lift / claw wait** (Drivetrain settings, default 0) to a number of milliseconds. A loop that does something else while it waits on a lift is carried on after 500 ms.
 **Functions that are not in your paste** (for example `resetAtGoalA()` defined in another file) are skipped and listed at the end of the run log. If one moves the robot, paste its definition too and it will run.
 
 Anything on other objects (`intake.move(127)`, `clamp.set_value(true)`, `pros::lcd::print(...)`, ...) is ignored, and lambdas / `pros::Task` bodies are skipped.

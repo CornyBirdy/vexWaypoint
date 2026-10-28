@@ -15,7 +15,7 @@ const cfg = (extra) => ({
   ...extra,
 });
 
-async function run(code, { start = { x: 0, y: 0, h: 0 }, paths = [], language = 'cpp', cfgExtra, realism } = {}) {
+async function run(code, { start = { x: 0, y: 0, h: 0 }, paths = [], language = 'cpp', cfgExtra, realism, startFromSetPose, mechanismWaitMs } = {}) {
   const c = V.compileAuton(code, { language });
   const res = await V.runSimulation({
     js: c.js,
@@ -26,6 +26,8 @@ async function run(code, { start = { x: 0, y: 0, h: 0 }, paths = [], language = 
     chassisNames: ['chassis', c.config.chassisName],
     maxMs: 120000,
     realism,
+    startFromSetPose,
+    mechanismWaitMs,
   });
   const f = res.frames;
   if (!f) return { res, c, end: null };
@@ -318,10 +320,10 @@ const angDiff = (a, b) => Math.abs(normDeg(a - b));
     const ev = t.res.events;
     assert(!ev.some((e) => e.kind === 'error'), 'no errors: ' + ev.filter((e) => e.kind === 'error').map((e) => e.text));
     assert(ev.some((e) => /Auton code finished/.test(e.text)), 'the routine finishes');
-    assert(t.end.t < 120000 && t.end.t > 10000, 'finishes in a sensible time, not at the time limit: ' + t.end.t);
-    assert(ev.some((e) => e.kind === 'warn' && /liftPIDEnabled/.test(e.text)), 'tells you the lift wait was skipped');
+    assert(t.end.t < 120000 && t.end.t > 5000, 'finishes in a sensible time, not at the time limit: ' + t.end.t);
+    assert(ev.some((e) => /liftPIDEnabled/.test(e.text) && /adds no delay/.test(e.text)), 'tells you the lift wait was skipped');
     assert(ev.some((e) => /resetAtGoalA\(\), resetAtGoalB\(\)/.test(e.text)), 'lists the undefined helpers');
-    // 14 waits of the default 500 ms each are the only extra time; a longer wait setting lengthens the run
+    // by default a wait on something the sim does not run costs no time at all; a wait setting adds time per loop
     const slow = await V.runSimulation({ js: V.compileAuton(skills, { language: 'cpp' }).js, robot: ROBOT, start: { x: 0, y: 0, h: 0 }, cfg: cfg(), paths: [], chassisNames: ['chassis'], mechanismWaitMs: 1500, maxMs: 300000 });
     assert(slow.durationMs > t.end.t + 5000, 'a longer mechanism wait lengthens the run');
     console.log('ok bare skills paste with lift waits finishes in', t.end.t, 'ms');
@@ -493,6 +495,62 @@ const angDiff = (a, b) => Math.abs(normDeg(a - b));
     near(rb.sh, rb.h, 1e-12, 'reset heading');
     assert(r.res.realism.maxPosErr > 0.5, 'there was an error before the reset: ' + r.res.realism.maxPosErr);
     console.log('ok real-life error: gyro drift, wheel slip, sliding, scrub, wall, setPose, seeds');
+  }
+
+  // --- chassis.setPose(): every spelling works, and one at the start of the code says where the robot starts
+  {
+    const place = { start: { x: -48, y: -48, h: 0 }, startFromSetPose: true };
+    const forms = {
+      numbers: 'chassis.setPose(10, -20, 90);',
+      radians: 'chassis.setPose(10, -20, M_PI / 2, true);',
+      pose: 'chassis.setPose(lemlib::Pose(10, -20, 90));',
+      poseBraces: 'chassis.setPose(lemlib::Pose{10, -20, 90});',
+      bareBraces: 'chassis.setPose({10, -20, 90});',
+      variable: 'lemlib::Pose p(10, -20, 90); chassis.setPose(p);',
+      variableBraces: 'lemlib::Pose p{10, -20, 90}; chassis.setPose(p);',
+    };
+    for (const [name, line] of Object.entries(forms)) {
+      t = await run(`void autonomous() { ${line} chassis.moveToPoint(34, -20, 3000, {}, false); }`, place);
+      assert(!t.res.events.some((e) => e.kind === 'error'), name + ': no error');
+      near(t.res.frames.x[0], 10, 1e-9, name + ' start x');
+      near(t.res.frames.y[0], -20, 1e-9, name + ' start y');
+      near(t.res.frames.h[0], 90, 1e-9, name + ' start heading');
+      near(t.end.x, 34, 1.5, name + ' end x');
+      near(t.end.y, -20, 1.5, name + ' end y');
+      assert.deepStrictEqual(t.res.startFromCode, { x: 10, y: -20, h: 90 }, name + ' reports the start');
+    }
+    // without the option the robot stays where the start pose panel put it
+    t = await run('void autonomous() { chassis.setPose(10, -20, 90); }', { start: { x: -48, y: -48, h: 0 } });
+    near(t.res.frames.x[0], -48, 1e-9, 'start pose panel wins when the option is off');
+    assert.strictEqual(t.res.startFromCode, null);
+    // only a setPose before the first motion places the robot; a later one is a plain re-anchor
+    t = await run('void autonomous() { chassis.moveToPoint(0, 24, 3000, {}, false); chassis.setPose(10, 10, 0); }', place);
+    near(t.res.frames.x[0], -48, 1e-9, 'a setPose after a motion does not move the robot');
+    assert.strictEqual(t.res.startFromCode, null);
+    // getPose arguments
+    t = await run('void autonomous() { chassis.setPose(0, 0, 90); lemlib::Pose a = chassis.getPose(); lemlib::Pose b = chassis.getPose(true, true); lemlib::Pose c = chassis.getPose(true); chassis.moveToPoint(a.theta == 90 ? 10 : -10, b.theta == 0 ? 10 : -10, 3000, {}, false); chassis.moveToPoint(Math.abs(c.theta - M_PI / 2) < 1e-6 ? 20 : -20, 10, 3000, {}, false); }', { start: { x: 0, y: 0, h: 0 } });
+    const fr = t.res.frames;
+    near(fr.cx[fr.cx.length - 1], 20, 2, 'getPose(): degrees, standard position and radians');
+    near(fr.cy[fr.cy.length - 1], 10, 3, 'getPose(true, true) is 0 for a robot facing +x');
+    console.log('ok setPose forms + start from code');
+  }
+
+  // --- waiting on a lift / claw the sim does not run
+  {
+    const wait = 'int liftPIDEnabled = 3; void autonomous() { chassis.moveToPoint(0, 12, 3000, {}, false); while (liftPIDEnabled != 1) { pros::delay(20); } chassis.moveToPoint(0, 24, 3000, {}, false); }';
+    t = await run(wait);
+    const gap = t.res.motions[1].t0 - t.res.motions[0].t1;
+    assert(gap < 30, 'a lift wait adds no time by default: ' + gap);
+    t = await run(wait, { mechanismWaitMs: 400 });
+    assert(t.res.motions[1].t0 - t.res.motions[0].t1 >= 400, 'the wait setting adds time per loop');
+    // loops that do real work keep working
+    t = await run('void autonomous() { int i = 0; while (i < 3) { i++; pros::delay(100); } }');
+    assert(t.end.t >= 300, 'a counting loop still counts: ' + t.end.t);
+    t = await run('void autonomous() { chassis.moveToPoint(0, 24, 3000); while (chassis.isInMotion()) { pros::delay(10); } }');
+    near(t.end.y, 24, 1.5, 'waiting on the drivetrain still waits');
+    t = await run('void autonomous() { chassis.moveToPoint(0, 24, 3000); while (chassis.getPose().y < 20) { pros::delay(10); } chassis.cancelMotion(); }');
+    assert(t.end.y > 18 && t.end.y < 40, 'waiting on getPose() still waits: ' + t.end.y);
+    console.log('ok lift waits add no time by default');
   }
 
   console.log('\nALL ENGINE TESTS PASSED');

@@ -10,7 +10,7 @@
   const DEFAULTS = {
     start: { x: -60, y: -60, h: 0 },
     robot: { wheelDiameter: 3.25, rpm: 450, speedPct: 90, trackWidth: 12, length: 15, width: 15, responseMs: 80 },
-    cfg: { horizontalDrift: 2, pathMode: 'field', mechanismWait: 500 },
+    cfg: { horizontalDrift: 2, pathMode: 'field', mechanismWait: 0, startFromCode: true },
     real: { ...V.REAL_DEFAULTS },
     lateral: { ...V.DEFAULT_LATERAL },
     angular: { ...V.DEFAULT_ANGULAR },
@@ -45,7 +45,7 @@
       ['robot.width', 'Robot width (in)', 0.5, 6, 24],
       ['robot.responseMs', 'Motor response (ms)', 5, 1, 400],
       ['cfg.horizontalDrift', 'Horizontal drift', 0.5, 0, 50],
-      ['cfg.mechanismWait', 'Lift / claw wait (ms)', 50, 0, 5000],
+      ['cfg.mechanismWait', 'Lift / claw wait (ms, 0 = none)', 50, 0, 5000],
     ],
     formReal: [
       ['real.seed', 'Random seed', 1, 0, 999999],
@@ -128,6 +128,7 @@
     $('pathMode').value = S.cfg.pathMode;
     $('pathModeNote').innerHTML = PATH_MODE_NOTES[S.cfg.pathMode];
     $('realOn').checked = !!S.real.enabled;
+    $('startFromCode').checked = !!S.cfg.startFromCode;
     $('formReal').classList.toggle('off', !S.real.enabled);
     $('lang').value = S.lang;
     $('autonLimit').value = String(S.autonLimit);
@@ -292,6 +293,8 @@
   let drawQueued = false;
   let trail = [];
   let compiled = null;
+  let codeStart = null; // {x, y, h} when the code's own setPose() placed the robot on the last run
+  const round2 = (v) => Math.round(v * 100) / 100;
 
   function currentCompiled() {
     compiled = V.compileAuton($('code').value, { language: S.lang, routine: S.routine });
@@ -326,6 +329,7 @@
         robot: S.robot,
         start: S.start,
         realism: S.real,
+        startFromSetPose: S.cfg.startFromCode,
         cfg: { lateral: S.lateral, angular: S.angular, trackWidth: S.robot.trackWidth, horizontalDrift: S.cfg.horizontalDrift, pathMode: S.cfg.pathMode },
         paths: paths.map((p) => ({
           ids: [p.id, ...p.aliases],
@@ -340,6 +344,13 @@
         maxMs: 120000,
       });
       result = res;
+      // a setPose() at the start of the code decides where the robot starts: show it in the panel
+      codeStart = res.startFromCode;
+      if (codeStart) {
+        S.start = { x: round2(codeStart.x), y: round2(codeStart.y), h: round2(codeStart.h) };
+        pushSettingsToUi();
+      }
+      $('startNote').hidden = !codeStart;
       trail = [];
       if (res.frames) {
         const f = res.frames;
@@ -427,6 +438,8 @@
   // ------------------------------------------------------------------ drawing / playback
 
   function startFrame() {
+    // code coordinates are field coordinates when the code's own setPose() placed the robot
+    if (codeStart && S.cfg.startFromCode) return { px: 0, py: 0, psi: 0 };
     const psi = S.start.h * D2R;
     return { px: S.start.x, py: S.start.y, psi };
   }
@@ -492,7 +505,7 @@
       ghostHandle: true,
       paths: $('optPaths').checked ? previewPaths() : null,
       edit: $('optPaths').checked || V.PathTool.tool() === 'edit' ? V.PathTool.drawState() : null,
-      codeAxes: $('optAxes').checked ? { x: S.start.x, y: S.start.y, h: S.start.h } : null,
+      codeAxes: $('optAxes').checked ? { x: startFrame().px, y: startFrame().py, h: (startFrame().psi * 180) / Math.PI } : null,
     };
     if (f) {
       state.pose = { x: f.x[idx], y: f.y[idx], h: f.h[idx] };
@@ -570,6 +583,10 @@
 
     cv.addEventListener('pointerdown', (e) => {
       const w = pos(e);
+      if (V.PathTool.tool() !== 'edit' && codeStart && S.cfg.startFromCode && (hitRobot(w).inside || handleHit(w))) {
+        $('cursor').textContent = 'The start pose comes from setPose() in your code. Untick "take the start pose from setPose()" to place it by hand.';
+        return;
+      }
       if (V.PathTool.tool() === 'edit') {
         if (V.PathTool.pointerDown(w, e, clientXY(e))) {
           cv.setPointerCapture(e.pointerId);
@@ -661,6 +678,8 @@
     const saved = load();
     if (saved && saved.S) {
       S = merge(clone(DEFAULTS), saved.S);
+      // 500 ms was the old default for the lift / claw wait; the new default is no wait at all
+      if (saved.S.cfg && saved.S.cfg.mechanismWait === 500) S.cfg.mechanismWait = 0;
       pathFiles = Array.isArray(saved.files) ? saved.files : [];
       $('code').value = typeof saved.code === 'string' ? saved.code : V.EXAMPLES.code;
     } else {
@@ -782,6 +801,11 @@
       requestDraw();
     });
     $('speed').addEventListener('change', requestDraw);
+    $('startFromCode').addEventListener('change', (e) => {
+      S.cfg.startFromCode = e.target.checked;
+      if (!e.target.checked) $('startNote').hidden = true;
+      settingsChanged();
+    });
     $('realOn').addEventListener('change', (e) => {
       S.real.enabled = e.target.checked;
       $('formReal').classList.toggle('off', !S.real.enabled);

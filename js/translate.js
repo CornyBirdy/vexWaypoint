@@ -210,8 +210,11 @@
         const bodyClose = matchBracket(s, bodyOpen);
         if (bodyClose >= 0) {
           const id = '__w' + loopCounter++;
-          const body = guardWhileLoops(s.slice(bodyOpen, bodyClose + 1));
-          out += s.slice(i, m.index) + `{ const ${id} = __loopStart(${JSON.stringify(cond.trim())}); while (__guard(), !__stuck(${id}) && (${cond})) ${body} }`;
+          const raw = s.slice(bodyOpen, bodyClose + 1);
+          // a loop that does nothing but wait (`while (liftBusy) { pros::delay(20); }`)
+          const waitOnly = /^\{\s*(?:(?:await\s+)?(?:pros::)?delay\s*\([^;{}]*\)\s*;?\s*)*\}$/.test(raw) && /delay/.test(raw);
+          const body = guardWhileLoops(raw);
+          out += s.slice(i, m.index) + `{ const ${id} = __loopStart(${JSON.stringify(cond.trim())}, ${waitOnly}); while (__guard(), !__stuck(${id}) && (${cond})) ${body} }`;
           i = bodyClose + 1;
           re.lastIndex = i;
           continue;
@@ -279,6 +282,10 @@
     s = s.replace(/\b[A-Za-z_]\w*::([A-Za-z_]\w*)/g, '$1');
     // designated initialisers: {.a = 1, .b = 2}
     s = s.replace(/([{,]\s*)\.([A-Za-z_]\w*)\s*=(?!=)/g, '$1$2:');
+    // Pose with braces: `Pose{1, 2, 3}`, `Pose p{1, 2, 3};` and `setPose({1, 2, 3})`
+    s = s.replace(/\bsetPose\s*\(\s*\{([^{}]*)\}/g, 'setPose(Pose($1)');
+    s = s.replace(/\bPose\s+([A-Za-z_]\w*)\s*\{([^{}]*)\}/g, 'Pose $1($2)');
+    s = s.replace(/\bPose\s*\{([^{}]*)\}/g, 'Pose($1)');
     // C++-only syntax
     s = s.replace(/\b(?:static|reinterpret|const|dynamic)_cast\s*<[^>]*>/g, '');
     s = s.replace(/\(\s*(?:unsigned\s+)?(?:int|float|double|bool|long|short|size_t)\s*\)/g, '');

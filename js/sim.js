@@ -9,6 +9,8 @@
   const { TICK_MS, D2R, R2D, Chassis } = NS;
 
   const HALF_FIELD = 72;
+  // a loop that does more than wait, on something the sim does not run, carries on after this long
+  const DEFAULT_LOOP_WAIT_MS = 500;
   const SUBSTEPS = 4;
 
   // ---------------------------------------------------------------- virtual time
@@ -301,12 +303,35 @@
       return f;
     };
     const warnedLoops = new Set();
-    const stuckMs = opts && opts.mechanismWaitMs != null ? opts.mechanismWaitMs : 500;
+    const stuckMs = opts && opts.mechanismWaitMs != null ? opts.mechanismWaitMs : 0;
     const def = (v, d) => (v === undefined || v === null ? d : v);
+    let poseDeclared = false;
+    // loops that really wait on time or on the drivetrain
+    const realWait = new RegExp('millis|isInMotion|waitUntil|getPose|Pose|odom|\\b(?:' + chassisNames.map((n) => n.replace(/\W/g, '')).join('|') + ')\\b');
 
     const api = {
-      setPose: (x, y, theta) => ch.setPose(x, y, theta),
-      getPose: () => ch.getPose(),
+      // setPose(x, y, theta[, radians]) or setPose(Pose[, radians]) or setPose({x, y, theta}); theta is a compass heading
+      setPose: (x, y, theta, radians) => {
+        const obj = x !== null && typeof x === 'object';
+        const q = obj ? (Array.isArray(x) ? { x: x[0], y: x[1], theta: x[2] } : x) : { x, y, theta };
+        let th = Number(q.theta);
+        if (obj ? y : radians) th *= R2D;
+        const px = Number(q.x);
+        const py = Number(q.y);
+        if (![px, py, th].every(isFinite)) throw new Error('setPose(): x, y and theta must be numbers');
+        // the first setPose before the robot has moved says where it starts
+        if (opts && opts.placeRobot && !poseDeclared && ch.motionCount === 0) opts.placeRobot(px, py, th);
+        poseDeclared = true;
+        ch.setPose(px, py, th);
+      },
+      // getPose([radians[, standardPos]]): compass degrees unless asked otherwise
+      getPose: (radians, standard) => {
+        const p = ch.getPose();
+        let th = p.theta;
+        if (standard) th = 90 - th;
+        if (radians) th *= D2R;
+        return { x: p.x, y: p.y, theta: th, heading: th };
+      },
       calibrate: () => {},
       resetLocalPosition: () => {},
       setBrakeMode: () => {},
@@ -344,17 +369,23 @@
       delay: (ms) => clock.sleep(ms),
       millis: () => clock.now,
       // `while (cond) {...}` waiting on something that is not simulated (lift, claw): give up after a while
-      __loopStart: (cond) => ({ t0: clock.now, cond, warned: false }),
+      __loopStart: (cond, waitOnly) => ({ t0: clock.now, cond, waitOnly: !!waitOnly, warned: false }),
       __stuck: (w) => {
-        if (/millis|isInMotion|waitUntil/.test(w.cond)) return false; // real waits on time / the drivetrain
-        if (ch.motion) {
-          w.t0 = clock.now;
-          return false;
+        if (realWait.test(w.cond)) return false; // real waits on time / the drivetrain
+        // a loop that only waits (`while (liftBusy) { delay(20); }`) is waiting on something the sim does
+        // not run, so with the default setting (0) it is treated as already finished and costs no time
+        const instant = stuckMs === 0 && w.waitOnly;
+        const ms = stuckMs > 0 ? stuckMs : DEFAULT_LOOP_WAIT_MS;
+        if (!instant) {
+          if (ch.motion) {
+            w.t0 = clock.now;
+            return false;
+          }
+          if (clock.now - w.t0 < ms) return false;
         }
-        if (clock.now - w.t0 < stuckMs) return false;
         if (!warnedLoops.has(w.cond)) {
           warnedLoops.add(w.cond);
-          log('warn', `while (${w.cond}) waits on something the sim does not run (lift, claw...); carried on after ${stuckMs} ms each time`);
+          log('info', `while (${w.cond}) waits on something the sim does not run (lift, claw...)` + (instant ? ', so it counts as already done and adds no delay' : `; carried on after ${ms} ms each time`));
         }
         return true;
       },
@@ -413,6 +444,7 @@
    *   cfg             {lateral, angular, trackWidth, horizontalDrift, pathMode}
    *   realism         optional {enabled, seed, gyroDrift, gyroScale, gyroNoise, grip, gripVar, latGrip, scrub}
    *   paths           [{ids:[...], name, points:[{x,y,v}] (inches, file frame)}]
+   *   startFromSetPose  true: a setPose() before the first motion places the robot there
    *   maxMs           hard stop for the simulation
    *   onProgress(ms)  optional
    */
@@ -492,7 +524,24 @@
     });
 
     const names = o.chassisNames && o.chassisNames.length ? o.chassisNames : ['chassis'];
-    const scope = buildScope(ch, clock, lib, names, log, { mechanismWaitMs: o.mechanismWaitMs });
+    let placed = null;
+    const scope = buildScope(ch, clock, lib, names, log, {
+      mechanismWaitMs: o.mechanismWaitMs,
+      // setPose() at the start of the code places the robot there (field coordinates, compass heading)
+      placeRobot: o.startFromSetPose
+        ? (x, y, th) => {
+            robot.x = x;
+            robot.y = y;
+            robot.h = th * D2R;
+            robot.collideWalls();
+            robot.touching = false;
+            robot.resetOdometry();
+            placed = { x: robot.x, y: robot.y, h: th };
+            const moved = Math.hypot(robot.x - o.start.x, robot.y - o.start.y) > 0.01 || Math.abs(((((th - o.start.h) % 360) + 540) % 360) - 180) > 0.01;
+            if (moved) log('info', `setPose(${+x.toFixed(2)}, ${+y.toFixed(2)}, ${+th.toFixed(2)}) at the start: the robot starts there`);
+          }
+        : null,
+    });
 
     const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
     let fn;
@@ -572,7 +621,7 @@
     const missing = Array.from(scope.__unknownCalls || []).filter((n) => !/^(printf|print|lcd|puts)$/.test(n));
     if (missing.length) log('info', `Not defined in your code, so skipped: ${missing.map((n) => n + '()').join(', ')}. If one moves the robot, paste its definition too.`);
 
-    return { frames: F, events, motions, durationMs: clock.now, error, vmax: robot.vmax, realism: stats };
+    return { frames: F, events, motions, durationMs: clock.now, error, vmax: robot.vmax, realism: stats, startFromCode: placed };
   }
 
   /** how far the odometry ended up from the real robot, for the run log */
