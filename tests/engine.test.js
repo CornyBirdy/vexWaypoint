@@ -2,7 +2,7 @@
 'use strict';
 const path = require('path');
 const assert = require('assert');
-for (const f of ['lemlib', 'chassis', 'aligners', 'contact', 'paths', 'translate', 'sim']) require(path.join('..', 'js', f + '.js'));
+for (const f of ['lemlib', 'chassis', 'motors', 'aligners', 'contact', 'paths', 'translate', 'sim', 'autotune']) require(path.join('..', 'js', f + '.js'));
 const V = globalThis.VSim;
 
 const ROBOT = { wheelDiameter: 3.25, rpm: 450, speedPct: 90, trackWidth: 12, length: 15, width: 15, responseMs: 80 };
@@ -15,11 +15,11 @@ const cfg = (extra) => ({
   ...extra,
 });
 
-async function run(code, { start = { x: 0, y: 0, h: 0 }, paths = [], language = 'cpp', cfgExtra, realism, startFromSetPose, mechanismWaitMs, world } = {}) {
+async function run(code, { start = { x: 0, y: 0, h: 0 }, paths = [], language = 'cpp', cfgExtra, realism, startFromSetPose, mechanismWaitMs, world, robot } = {}) {
   const c = V.compileAuton(code, { language });
   const res = await V.runSimulation({
     js: c.js,
-    robot: ROBOT,
+    robot: robot || ROBOT,
     start,
     cfg: cfg(cfgExtra),
     paths,
@@ -774,6 +774,122 @@ const angDiff = (a, b) => Math.abs(normDeg(a - b));
     await pocketRun(1);
     assert(Date.now() - t0 < 4000, 'a run with contacts is fast enough: ' + (Date.now() - t0) + ' ms');
     console.log('ok aligners: shapes, solid goals, walls, pocket alignment, tolerance, back aligners');
+  }
+
+  // --- motors and weight: the real-life speed and the response are worked out, not typed in
+  {
+    const base = { ...ROBOT, motor: V.sanitizeMotor({}) };
+    const withMotor = (mod, extra = {}) => ({ ...base, ...extra, motor: V.sanitizeMotor({ ...base.motor, ...mod }) });
+    const d = V.motorModel(base);
+    assert(d.speedPct > 80 && d.speedPct <= 100, 'a normal drive reaches most of the ideal speed: ' + d.speedPct);
+    assert(d.respMs > 40 && d.respMs < 300, 'and gets there in a normal time: ' + d.respMs);
+    assert(V.motorModel(withMotor({ perSide: 4 })).respMs < d.respMs, 'more motors accelerate faster');
+    assert(V.motorModel(withMotor({ perSide: 2 })).respMs > d.respMs, 'fewer motors accelerate slower');
+    assert(V.motorModel(withMotor({ weight: 9 })).respMs > d.respMs, 'a heavier robot accelerates slower');
+    assert(V.motorModel(withMotor({ weight: 20, unit: 'lb' })).respMs > d.respMs, 'the weight can be in lb (20 lb = 9.1 kg)');
+    near(V.motorModel(withMotor({ weight: 11.0231, unit: 'lb' })).respMs, V.motorModel(withMotor({ weight: 5, unit: 'kg' })).respMs, 1, 'lb and kg agree');
+    assert(V.motorModel(withMotor({ volts: 10.5 })).speedPct < d.speedPct - 3, 'a flat battery is slower');
+    assert(V.motorModel(withMotor({ volts: 12 })).speedPct > d.speedPct, 'a full one is quicker');
+    const half = V.motorForWatts(base.motor, 5.5);
+    assert.strictEqual(half.cartridge, 200, 'the 5.5 W motor is a fixed 200 rpm');
+    assert(half.limitA < base.motor.limitA && half.stallA < base.motor.stallA, 'and draws half the current');
+    assert(V.motorModel({ ...base, motor: half }).respMs > d.respMs, 'six 5.5 W motors accelerate slower than six 11 W ones');
+    assert(V.motorModel(withMotor({ limitA: 1 })).respMs > d.respMs, 'a lower current limit means less torque');
+    assert(V.motorModel(base, { left: ['traction', 'traction'], mirror: true }).speedPct < V.motorModel(base, { left: ['omni', 'omni'], mirror: true }).speedPct, 'traction wheels roll harder than omnis');
+    assert(/motors/.test(V.describeMotors(base)) && /% of the wheel/.test(V.describeMotors(base)));
+
+    // in the sim: the robot really reaches the worked-out speed, and a heavy one takes longer for the same move
+    const move = 'chassis.moveToPoint(0, 60, 6000, {}, false);';
+    let fast = await run(move, { robot: base });
+    const top = Math.max(...fast.res.frames.vl);
+    near(top, d.vTop, d.vTop * 0.04, 'the robot reaches the computed top speed');
+    near(fast.res.vmax, d.vTop, 0.5, 'vmax is the computed top speed');
+    const heavy = await run(move, { robot: withMotor({ weight: 14 }) });
+    assert(heavy.end.t > fast.end.t, `a heavy robot takes longer (${heavy.end.t} vs ${fast.end.t} ms)`);
+    const manual = await run(move, { robot: { ...base, motor: { ...base.motor, auto: false } } });
+    near(Math.max(...manual.res.frames.vl), ROBOT.rpm / 60 * Math.PI * ROBOT.wheelDiameter * ROBOT.speedPct / 100, 3, 'auto off uses the typed speed');
+    console.log('ok motors: speed and response from motors, weight, voltage');
+  }
+
+  // --- auto-tuning the timeouts
+  {
+    const code = `void autonomous() {
+      chassis.moveToPoint(0, 20, 5000);           // a normal move
+      chassis.turnToHeading(90, 4000);            // a normal turn
+      chassis.turnToHeading(0, 4000);
+      chassis.moveToPoint(0, 100, 6000);          // drives into the centre goal and can never get there
+      chassis.waitUntilDone();
+    }`;
+    const start = { x: 0, y: -60, h: 0 };
+    const pocket = [{ type: 'line', x1: -3.1, y1: 7.5, x2: 3.1, y2: 7.5 }, { type: 'line', x1: -3.1, y1: 7.5, x2: -3.1, y2: 13 }, { type: 'line', x1: 3.1, y1: 7.5, x2: 3.1, y2: 13 }];
+    const simulateWith = (src, aligners) => async (extra) => {
+      const c = V.compileAuton(src, { language: 'cpp', markSites: true });
+      return V.runSimulation({ js: c.js, robot: ROBOT, start, cfg: cfg(), paths: [], chassisNames: ['chassis'], maxMs: 120000, world: { goals: {}, aligners: V.sanitizeAligners(aligners || {}) }, ...extra });
+    };
+    const sites = V.compileAuton(code, { language: 'cpp', markSites: true }).sites;
+    assert.deepStrictEqual(sites.map((x) => x.method), ['moveToPoint', 'turnToHeading', 'turnToHeading', 'moveToPoint']);
+    assert.deepStrictEqual(sites.map((x) => x.timeout.value), [5000, 4000, 4000, 6000]);
+
+    const tune = await V.autoTune({ simulate: simulateWith(code), sites });
+    const byId = (id) => tune.rows[id];
+    // the normal motions: measured time plus the margin, far below the generous timeout they had
+    [0, 1, 2].forEach((i) => {
+      assert.strictEqual(byId(i).kind, 'finished', 'call ' + i);
+      assert(byId(i).ms >= byId(i).maxMs * 1.2 && byId(i).ms < byId(i).maxMs * 1.2 + 400, `call ${i}: ${byId(i).ms} for a ${byId(i).maxMs} ms motion`);
+      assert.strictEqual(byId(i).ms % 50, 0, 'rounded up to 50 ms');
+    });
+    // the move into the goal: a little after it hit it, not the 6 s it had
+    assert.strictEqual(byId(3).kind, 'blocked', 'the move into the goal is recognised: ' + byId(3).why);
+    assert(byId(3).ms < 2500, 'and gets a short timeout: ' + byId(3).ms);
+    assert(byId(3).ms >= 400 + 200, 'which still leaves time to square up: ' + byId(3).ms);
+    // the code with the numbers put in
+    const tunedCode = V.rewriteTimeouts(code, sites, tune.tuned);
+    assert(/moveToPoint\(0, 20, \d+\)/.test(tunedCode) && !/moveToPoint\(0, 20, 5000\)/.test(tunedCode), 'the timeout in the code is replaced');
+    assert(/\/\/ a normal move/.test(tunedCode), 'the rest of the code is untouched');
+    assert.strictEqual(tunedCode.length - code.length, sites.reduce((n, x) => n + String(tune.tuned[x.id]).length - x.timeout.text.length, 0), 'only the numbers changed');
+    // running the tuned code gives a motion that is cut at its tuned time, and a shorter auton
+    const before = await simulateWith(code)({});
+    const after = await simulateWith(tunedCode)({});
+    assert(after.durationMs < before.durationMs - 1500, `the tuned auton is quicker: ${after.durationMs} vs ${before.durationMs} ms`);
+    assert.strictEqual(after.motions[3].reason, 'timeout');
+    assert.strictEqual(after.motions[0].reason !== 'timeout', true, 'the normal moves still finish on their own');
+    // settings change the answer
+    const loose = await V.autoTune({ simulate: simulateWith(code), sites, options: { pct: 100, extraMs: 500, alignMs: 1500 } });
+    assert(loose.rows[0].ms > tune.rows[0].ms && loose.rows[3].ms > tune.rows[3].ms, 'a bigger margin gives longer timeouts');
+
+    // an aligner that catches the goal ends the wait right after the alignment
+    const withPocket = await V.autoTune({ simulate: simulateWith(code, { front: { on: true, shapes: pocket }, back: { on: false } }), sites });
+    assert.strictEqual(withPocket.rows[3].kind, 'aligned', 'aligned: ' + withPocket.rows[3].why);
+    assert(withPocket.rows[3].ms < 1800, 'the timeout follows the alignment: ' + withPocket.rows[3].ms);
+
+    // several random draws of the real-life error: each call gets the longest timeout any draw needed
+    const simSeed = (seed) => async (extra) => {
+      const c = V.compileAuton(code, { language: 'cpp', markSites: true });
+      return V.runSimulation({ js: c.js, robot: ROBOT, start, cfg: cfg(), paths: [], chassisNames: ['chassis'], maxMs: 120000, world: { goals: {}, aligners: V.sanitizeAligners({}) }, realism: { enabled: true, seed }, ...extra });
+    };
+    const many = await V.autoTuneMany({ simulate: simSeed, sites, seeds: [11, 12, 13, 14] });
+    assert.strictEqual(many.draws, 4);
+    for (const seed of [11, 12, 13, 14]) {
+      const one = await V.autoTune({ simulate: simSeed(seed), sites });
+      sites.forEach((x) => assert(many.tuned[x.id] >= one.tuned[x.id], `call ${x.id}: ${many.tuned[x.id]} is at least what draw ${seed} needs (${one.tuned[x.id]})`));
+    }
+
+    // timeouts that are not plain numbers cannot be rewritten, but are still measured
+    const varCode = 'int T = 3000; void autonomous() { chassis.moveToPoint(0, 20, T); chassis.waitUntilDone(); chassis.turnToHeading(90, 3000 + 500); chassis.waitUntilDone(); }';
+    const vs = V.compileAuton(varCode, { language: 'cpp', markSites: true }).sites;
+    assert.deepStrictEqual(vs.map((x) => x.timeout.value), [null, null]);
+    const vt = await V.autoTune({ simulate: simulateWith(varCode), sites: vs });
+    assert(vt.rows.every((r) => !r.editable && r.ms > 0), 'measured but not editable');
+    assert.strictEqual(V.rewriteTimeouts(varCode, vs, vt.tuned), varCode, 'the code is left alone');
+
+    // a call that runs several times (a loop) gets the longest timeout; comments and strings are not calls
+    const loopCode = 'void autonomous() { for (int i = 1; i <= 3; i++) { chassis.moveToPoint(0, 10 * i, 4000); chassis.waitUntilDone(); } /* chassis.turnToHeading(5, 100); */ printf("chassis.moveToPoint(1,1,5)"); }';
+    const ls = V.compileAuton(loopCode, { language: 'cpp', markSites: true }).sites;
+    assert.strictEqual(ls.length, 1, 'comments and strings are skipped');
+    const lt = await V.autoTune({ simulate: simulateWith(loopCode), sites: ls });
+    assert.strictEqual(lt.rows[0].runs >= 3, true, 'it ran three times');
+    assert(lt.rows[0].ms >= lt.rows[0].maxMs * 1.2, 'the longest run sets the timeout');
+    console.log('ok auto-tune: margins, blocked moves, aligned goals, code rewrite');
   }
 
   console.log('\nALL ENGINE TESTS PASSED');

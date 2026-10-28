@@ -135,6 +135,8 @@
       this.t0 = ch.clock.now;
       this.t1 = null;
       this.donePromise = new Promise((r) => (this._res = r));
+      this.site = ch.nextSite == null ? null : ch.nextSite; // which call in the code started it (auto-tune)
+      ch.nextSite = null;
     }
     /** called when the motion actually starts running (after any earlier motion finished) */
     begin() {
@@ -596,6 +598,7 @@
       // code frame = field start pose; (0,0,0) in code is the start pose
       this.frame = { px: startPose.x, py: startPose.y, psi: startPose.h * D2R };
       this.motion = null;
+      this.nextSite = null;
       this.idleWaiters = [];
       this.aim = null;
       this.motionCount = 0;

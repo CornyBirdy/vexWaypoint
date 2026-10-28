@@ -10,6 +10,14 @@
           "name": "Added",
           "items": [
             {
+              "text": "**Motors and weight.** Enter the motor wattage (11 W or 5.5 W), stall / free / limit current, battery voltage, motors per side, cartridge, robot weight (kg or lb) and the sim works out the **real-life speed** and the **motor response** itself (the two boxes are filled in and locked). It is a DC motor model with a current limit, the gearing from the wheel RPM, rolling resistance from your wheel types, and the robot's mass: a heavier robot or fewer motors accelerate slower, a flat battery is slower, six 11 W blue-cartridge motors on a 5.5 kg robot reach about 94% of the ideal speed. Untick it to type the numbers in as before. The current figures are typical (VEX publishes the stall torque and the 2.5 A limit; the true stall and free current come from a community fit).",
+              "sub": []
+            },
+            {
+              "text": "**Auto-tune timeouts.** Measures how long every motion takes and gives each call a timeout of that time plus a safety margin (default 20% + 150 ms). A motion that hits a wall or goal and can never get there gets a timeout shortly after it hit (default +400 ms), or shortly after an aligner caught the goal (+200 ms), so it has time to square up without pushing in for long. It runs the tuned code again to check, covers several random draws of the real-life error, and gives you a table plus a copy of your code with the timeouts put in (copy it, or use it in the editor).",
+              "sub": []
+            },
+            {
               "text": "**Goal aligners.** Draw the aligners on the chassis in a CAD-style **sketch editor** (*Goal aligners* panel): lines, 3-point arcs, centre-point arcs and circles on an inch grid with snapping (1 / 0.5 / 0.25 in or off), exact dimensions typed in (line length and angle, arc and circle radius, arc sweep), select / drag handles, mirror copy, undo / redo, zoom and pan. The drivetrain is drawn at its entered size with its wheels. Front aligners are on by default; back aligners are drawn separately. Each set has a material (polycarbonate, acetal, steel, aluminium), a stock thickness and an alignment point (default the middle of the back of the aligners, or drag it).",
               "sub": []
             },

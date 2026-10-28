@@ -112,6 +112,15 @@
     <details class="sec" open>
       <summary>Drivetrain <span class="aside" id="topSpeed"></span></summary>
       <div class="props" id="formDrive"></div>
+      <h3>Motors and weight</h3>
+      <label class="check realtoggle"><input type="checkbox" id="motorAuto"> work out the real-life speed and motor response from the motors</label>
+      <div class="props" id="formMotor"></div>
+      <div class="props">
+        <label class="field"><span>Cartridge</span><select id="motorCartridge"><option value="100">100 rpm (red)</option><option value="200">200 rpm (green)</option><option value="600">600 rpm (blue)</option></select></label>
+        <label class="field"><span>Weight unit</span><select id="motorUnit"><option value="kg">kg</option><option value="lb">lb</option></select></label>
+      </div>
+      <p class="note" id="motorInfo"></p>
+      <p class="note">The wheel RPM above is the wheel's ideal speed (cartridge x gearing). With this on, the speed and response are worked out from the motors' torque, the current limit, the battery voltage, the gearing, the weight and the rolling resistance of your wheels, and the two boxes above show the result. The 11 W and 5.5 W current numbers are typical figures (VEX publishes the stall torque and the 2.5 A limit; the true stall and free current come from a community fit), not measured on your motors.</p>
     </details>
 
     <details class="sec" open>
@@ -192,6 +201,7 @@
       <textarea id="code" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Autonomous code"></textarea>
       <div class="actions">
         <button id="btnImport" class="btn" type="button" title="Read lemlib::Drivetrain and ControllerSettings from the code above">Import settings from code</button>
+        <button id="btnTune" class="btn" type="button" title="Measure every motion and set its timeout to the time it needs plus a safety margin">Auto-tune timeouts</button>
       </div>
       <p class="note">Drivetrain only. Calls on other objects (intake, lift, clamp...) are ignored.</p>
     </details>
@@ -238,6 +248,32 @@
   </div>
 </dialog>
 
+ <dialog id="tuneDlg" class="tunedlg" aria-labelledby="tuneTitle">
+  <header>
+    <h2 id="tuneTitle">Auto-tune timeouts</h2>
+    <span class="grow"></span>
+    <button id="tuneClose" class="btn" type="button">Close</button>
+  </header>
+  <div class="tunebody">
+    <p class="note">Runs your auton to see how long every motion really takes, then gives each call a timeout of that time plus a safety margin. A move that runs into a wall or a goal and can never get there gets a timeout a little after it hit (or after an aligner caught the goal), so it has time to square up but does not push in for long. It then runs the result again to check, and puts the numbers back into a copy of your code.</p>
+    <div class="props tuneopts">
+      <label class="field"><span>Safety margin (%)</span><input id="tunePct" type="number" step="5" min="0" max="300" value="20"></label>
+      <label class="field"><span>Plus (ms)</span><input id="tuneExtra" type="number" step="25" min="0" max="3000" value="150"></label>
+      <label class="field"><span>Wait after hitting a wall or goal (ms)</span><input id="tuneAlign" type="number" step="50" min="0" max="5000" value="400"></label>
+      <label class="field"><span>Wait after an aligner catches the goal (ms)</span><input id="tuneAligned" type="number" step="25" min="0" max="3000" value="200"></label>
+      <label class="field"><span>Random draws to check</span><input id="tuneDraws" type="number" step="1" min="1" max="8" value="3"></label>
+    </div>
+    <div class="actions"><button id="tuneRun" class="btn primary" type="button">Run auto-tune</button><span id="tuneStatus" class="note"></span></div>
+    <div id="tuneOut" hidden>
+      <p id="tuneSummary" class="note"></p>
+      <div class="tunetable"><table id="tuneTable"></table></div>
+      <h3>Your code with the tuned timeouts</h3>
+      <textarea id="tuneCode" readonly spellcheck="false" aria-label="Code with tuned timeouts"></textarea>
+      <div class="actions"><button id="tuneCopy" class="btn" type="button">Copy code</button><button id="tuneUse" class="btn" type="button" title="Replace the code in the editor with this">Use this code in the editor</button></div>
+    </div>
+  </div>
+</dialog>
+
 <dialog id="changelog" class="changelog" aria-labelledby="changelogTitle">
   <header>
     <h2 id="changelogTitle">Changelog</h2>
@@ -258,6 +294,7 @@
 <script src="js/editor.js"></script>
 <script src="js/export.js"></script>
 <script src="js/chassis.js"></script>
+<script src="js/motors.js"></script>
 <script src="js/aligners.js"></script>
 <script src="js/contact.js"></script>
 <script src="js/sim.js"></script>
@@ -265,6 +302,7 @@
 <script src="js/examples.js"></script>
 <script src="js/changelog.js"></script>
 <script src="js/sketch.js"></script>
+<script src="js/autotune.js"></script>
 <script src="js/pathtool.js"></script>
 <script src="js/app.js"></script>
 </body>

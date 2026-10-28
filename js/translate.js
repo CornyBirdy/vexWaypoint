@@ -57,6 +57,88 @@
     return out;
   }
 
+  /** the source with comments and the insides of strings blanked out, same length (newlines kept) */
+  function maskSource(src) {
+    const out = src.split('');
+    const n = src.length;
+    let i = 0;
+    while (i < n) {
+      const c = src[i];
+      const d = src[i + 1];
+      if (c === '"' || c === "'" || c === '`') {
+        let j = i + 1;
+        while (j < n && src[j] !== c && src[j] !== '\n') {
+          if (src[j] === '\\') j++;
+          j++;
+        }
+        for (let k = i + 1; k < Math.min(j, n); k++) out[k] = ' ';
+        i = j + 1;
+      } else if (c === '/' && d === '/') {
+        while (i < n && src[i] !== '\n') out[i++] = ' ';
+      } else if (c === '/' && d === '*') {
+        const end = src.indexOf('*/', i + 2);
+        const stop = end < 0 ? n : end + 2;
+        for (let k = i; k < stop; k++) if (src[k] !== '\n') out[k] = ' ';
+        i = stop;
+      } else i++;
+    }
+    return out.join('');
+  }
+
+  /** LemLib motions and the position of their timeout argument (0-based) in the call */
+  const MOTION_TIMEOUT_ARG = { moveToPoint: 2, moveToPose: 3, turnToHeading: 1, turnToPoint: 2, swingToHeading: 2, swingToPoint: 3, follow: 2 };
+
+  /**
+   * Finds every `chassis.moveToPoint(...)`-style call in the code, remembers where its timeout argument is
+   * (offsets in the ORIGINAL text) and renames the call to `moveToPoint__S<n>` so a run can tell the calls apart.
+   * @returns {{src:string, sites:Array<{id:number, method:string, line:number, timeout:null|{start:number,end:number,text:string,value:number|null}}>}}
+   */
+  function markMotionSites(src) {
+    const masked = maskSource(src);
+    const re = new RegExp('(?:\\.|->)\\s*(' + Object.keys(MOTION_TIMEOUT_ARG).join('|') + ')\\s*\\(', 'g');
+    const sites = [];
+    let out = '';
+    let last = 0;
+    let m;
+    while ((m = re.exec(masked))) {
+      const method = m[1];
+      const open = m.index + m[0].length - 1;
+      const nameEnd = m.index + m[0].indexOf(method) + method.length;
+      // matching close paren and the top-level argument ranges
+      let depth = 0;
+      let close = -1;
+      const cuts = [open + 1];
+      for (let k = open; k < masked.length; k++) {
+        const ch = masked[k];
+        if (ch === '(' || ch === '{' || ch === '[') depth++;
+        else if (ch === ')' || ch === '}' || ch === ']') {
+          depth--;
+          if (depth === 0) {
+            close = k;
+            break;
+          }
+        } else if (ch === ',' && depth === 1) cuts.push(k + 1);
+      }
+      if (close < 0) continue;
+      cuts.push(close + 1);
+      const idx = MOTION_TIMEOUT_ARG[method];
+      let timeout = null;
+      if (idx < cuts.length - 1) {
+        let a = cuts[idx];
+        let b = cuts[idx + 1] - 1;
+        while (a < b && /\s/.test(src[a])) a++;
+        while (b > a && /\s/.test(src[b - 1])) b--;
+        const text = src.slice(a, b);
+        timeout = { start: a, end: b, text, value: /^\d+$/.test(text) ? Number(text) : null };
+      }
+      const id = sites.length;
+      sites.push({ id, method, line: src.slice(0, m.index).split('\n').length, timeout });
+      out += src.slice(last, nameEnd) + '__S' + id;
+      last = nameEnd;
+    }
+    return { src: out + src.slice(last), sites };
+  }
+
   /** index of the bracket matching the one at `open` (string/char aware) */
   function matchBracket(s, open) {
     const pairs = { '(': ')', '{': '}', '[': ']' };
@@ -400,6 +482,17 @@
    */
   function compile(source, opts) {
     opts = opts || {};
+    if (opts.markSites) {
+      // number every motion call (for auto-tuning the timeouts); the translator sees the renamed calls
+      const mk = markMotionSites(source);
+      const r = compileInner(mk.src, opts);
+      r.sites = mk.sites;
+      return r;
+    }
+    return compileInner(source, opts);
+  }
+
+  function compileInner(source, opts) {
     const warnings = [];
     const ignored = [];
     if (opts.language === 'js') {
@@ -495,5 +588,5 @@
     return bad.slice(0, 3);
   }
 
-  Object.assign(NS, { compileAuton: compile, diagnoseJs: diagnose, stripComments, splitTopLevel });
+  Object.assign(NS, { compileAuton: compile, diagnoseJs: diagnose, stripComments, splitTopLevel, markMotionSites, MOTION_TIMEOUT_ARG });
 })();

@@ -16,10 +16,11 @@
    *   grip     friction coefficient driving forwards / braking
    *   lat      friction coefficient sideways (an omni's rollers let it slide, a traction wheel does not)
    *   spread   how much the grip of this wheel changes from run to run, % (1 sigma); rollers collect dust
+   *   roll     rolling resistance coefficient on foam tiles (the motors have to push against it)
    */
   const WHEEL_TYPES = {
-    omni: { label: 'Omni', grip: 0.75, lat: 0.25, spread: 6 },
-    traction: { label: 'Traction', grip: 1.0, lat: 0.9, spread: 3 },
+    omni: { label: 'Omni', grip: 0.75, lat: 0.25, spread: 6, roll: 0.035 },
+    traction: { label: 'Traction', grip: 1.0, lat: 0.9, spread: 3, roll: 0.055 },
   };
   const MAX_PER_SIDE = 4;
   const TRACKING_DIAMETER = 2; // drawn size of a tracking wheel, in
@@ -87,6 +88,7 @@
       grip: mean((w) => WHEEL_TYPES[w.type].grip),
       latGrip: mean((w) => WHEEL_TYPES[w.type].lat),
       spread: mean((w) => WHEEL_TYPES[w.type].spread),
+      roll: mean((w) => WHEEL_TYPES[w.type].roll),
       // turning drags every wheel sideways; a wheel far from the centre, with sideways grip, resists most
       scrub: 1 + (0.5 * mean((w) => WHEEL_TYPES[w.type].lat * Math.abs(w.y))) / trackWidth,
       tracking: c.tracking,

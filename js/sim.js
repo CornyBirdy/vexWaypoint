@@ -54,6 +54,7 @@
 
   const G = 386.09; // gravity, in / s^2
   const resolveContacts = (...a) => NS.resolveContacts(...a);
+  const motorStep = (...a) => NS.motorStep(...a);
   const LAT_TAU = 0.015; // s: how fast the tyres kill sideways speed while they still have grip
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
@@ -197,9 +198,16 @@
         this.gyroNoise = re.noiseRad * re.rng.randn();
       }
       const world = this.world;
+      const mm = p.motorModel || null;
       for (let i = 0; i < SUBSTEPS; i++) {
-        this.vL += ((this.cmdL / 127) * this.vmax - this.vL) * alpha;
-        this.vR += ((this.cmdR / 127) * this.vmax - this.vR) * alpha;
+        if (mm) {
+          // motor model: the wheel speed follows from the motors' torque, the gearing, the weight and the rolling resistance
+          this.vL = motorStep(this.vL, this.cmdL, dt, mm);
+          this.vR = motorStep(this.vR, this.cmdR, dt, mm);
+        } else {
+          this.vL += ((this.cmdL / 127) * this.vmax - this.vL) * alpha;
+          this.vR += ((this.cmdR / 127) * this.vmax - this.vR) * alpha;
+        }
         if (!re && !world) {
           const v = (this.vL + this.vR) / 2;
           const w = (this.vL - this.vR) / p.trackWidth; // rad/s, clockwise positive
@@ -550,9 +558,29 @@
       arcade: () => {},
       curvature: () => {},
     };
+    // motion calls numbered by the translator (`moveToPoint__S3`) know which call in the code they are: the
+    // auto-tuner can swap that call's timeout (opts.siteTimeouts) or every timeout (opts.timeoutOverride)
+    const TIMEOUT_ARG = { moveToPoint: 2, moveToPose: 3, turnToHeading: 1, turnToPoint: 2, swingToHeading: 2, swingToPoint: 3, follow: 2 };
+    const siteCall = (method, id) => (...args) => {
+      const at = TIMEOUT_ARG[method];
+      if (opts && opts.siteTimeouts && opts.siteTimeouts[id] != null) args[at] = opts.siteTimeouts[id];
+      else if (opts && opts.timeoutOverride != null) args[at] = opts.timeoutOverride;
+      ch.nextSite = id;
+      try {
+        return api[method](...args);
+      } finally {
+        ch.nextSite = null;
+      }
+    };
     // anything else on chassis (e.g. setBrakeMode variants) is ignored
     const chassisObj = new Proxy(api, {
-      get: (t, k) => (k in t ? t[k] : k === 'then' ? undefined : NOOP),
+      get: (t, k) => {
+        if (typeof k === 'string') {
+          const m = /^(\w+)__S(\d+)$/.exec(k);
+          if (m && TIMEOUT_ARG[m[1]] !== undefined && m[1] in t) return siteCall(m[1], +m[2]);
+        }
+        return k in t ? t[k] : k === 'then' ? undefined : NOOP;
+      },
     });
 
     const scope = {
@@ -648,14 +676,20 @@
   async function runSimulation(o) {
     const clock = new Clock();
     const world = makeRunWorld(o);
-    const robot = new Robot(o.robot, o.start, o.realism, world);
+    // motors + weight: work out the real-life speed and response instead of using the typed-in numbers
+    let robotP = o.robot;
+    if (robotP.motor && robotP.motor.auto !== false && NS.motorModel) {
+      const mm = NS.motorModel(robotP, o.realism && o.realism.chassis);
+      robotP = { ...robotP, speedPct: mm.speedPct, responseMs: mm.respMs, motorModel: mm };
+    }
+    const robot = new Robot(robotP, o.start, o.realism, world);
     const events = [];
     const motions = [];
     const log = (kind, text) => events.push({ t: clock.now, kind, text });
 
     const ch = new Chassis(robot, clock, o.cfg, o.start, {
       motionStart(m) {
-        motions.push({ id: m.id, label: m.label, t0: clock.now, t1: null, reason: '', follow: m.name === 'follow' ? m.pts.map((p) => ch.codeToField(p.x, p.y)) : null });
+        motions.push({ id: m.id, label: m.label, site: m.site, firstContact: null, alignedAt: null, t0: clock.now, t1: null, reason: '', follow: m.name === 'follow' ? m.pts.map((p) => ch.codeToField(p.x, p.y)) : null });
         log('motion', m.label);
       },
       motionEnd(m) {
@@ -725,6 +759,8 @@
     let placed = null;
     const scope = buildScope(ch, clock, lib, names, log, {
       mechanismWaitMs: o.mechanismWaitMs,
+      siteTimeouts: o.siteTimeouts,
+      timeoutOverride: o.timeoutOverride,
       // setPose() at the start of the code places the robot there (field coordinates, compass heading)
       placeRobot: o.startFromSetPose
         ? (x, y, th) => {
@@ -781,7 +817,10 @@
       F.alF.push(align.front ? align.front.now : -1);
       F.alB.push(align.back ? align.back.now : -1);
     };
-    const align = makeAlignTracking(world, robot, log, () => clock.now);
+    const align = makeAlignTracking(world, robot, log, () => clock.now, () => {
+      const rec = ch.motion && motions[ch.motion.id];
+      if (rec && rec.alignedAt == null) rec.alignedAt = clock.now; // first time an aligner caught a goal
+    });
 
     let codeDone = false;
     let error = null;
@@ -807,6 +846,10 @@
       ch.step();
       robot.step(TICK_MS);
       clock.now += TICK_MS;
+      if (ch.motion && robot.touching) {
+        const rec = motions[ch.motion.id];
+        if (rec && rec.firstContact == null) rec.firstContact = clock.now; // first time it hit a wall or a goal
+      }
       align.update();
       record();
       if (++ticks % 400 === 0) {
@@ -851,7 +894,7 @@
    * back point of the aligner). With real-life error on the allowance is 5% smaller, a small bias towards not
    * aligning. Logs the moment a goal becomes aligned and sums up at the end.
    */
-  function makeAlignTracking(world, robot, log, now) {
+  function makeAlignTracking(world, robot, log, now, onAligned) {
     const out = { front: null, back: null };
     if (!world || !world.aligners) return { ...out, update() {}, finish: () => null };
     const bias = robot.real ? 0.95 : 1;
@@ -882,6 +925,7 @@
           if (idx !== st.now) {
             if (idx >= 0 && (!st.ever || st.ever.goal.index !== idx)) {
               st.ever = { goal: best.goal, d: best.d, t: now() };
+              if (onAligned) onAligned(st.side, best.goal.index);
               log('info', `${st.side} aligner aligned with the ${label(best.goal)} (${best.d.toFixed(2)} in from the alignment point)`);
             }
             st.now = idx;

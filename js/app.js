@@ -9,7 +9,7 @@
 
   const DEFAULTS = {
     start: { x: -58, y: -58, h: 0 },
-    robot: { wheelDiameter: 3.25, rpm: 450, speedPct: 90, trackWidth: 12, length: 15, width: 15, responseMs: 80 },
+    robot: { wheelDiameter: 3.25, rpm: 450, speedPct: 90, trackWidth: 12, length: 15, width: 15, responseMs: 80, motor: JSON.parse(JSON.stringify(V.DEFAULT_MOTOR)) },
     cfg: { horizontalDrift: 2, pathMode: 'field', mechanismWait: 0, startFromCode: true, solidGoals: true },
     aligners: JSON.parse(JSON.stringify(V.DEFAULT_ALIGNERS)),
     goals: { ...V.GOAL_DEFAULTS },
@@ -49,6 +49,15 @@
       ['robot.responseMs', 'Motor response (ms)', 5, 1, 400],
       ['cfg.horizontalDrift', 'Horizontal drift', 0.5, 0, 50],
       ['cfg.mechanismWait', 'Lift / claw wait (ms, 0 = none)', 50, 0, 5000],
+    ],
+    formMotor: [
+      ['robot.motor.perSide', 'Motors per side', 1, 1, 8],
+      ['robot.motor.watts', 'Motor wattage (W)', 5.5, 1, 30],
+      ['robot.motor.stallA', 'Stall current (A)', 0.1, 0.2, 30],
+      ['robot.motor.freeA', 'Free current (A)', 0.01, 0, 5],
+      ['robot.motor.limitA', 'Current limit (A)', 0.1, 0.2, 30],
+      ['robot.motor.volts', 'Battery voltage, driving (V)', 0.1, 6, 14],
+      ['robot.motor.weight', 'Robot weight', 0.1, 0.5, 60],
     ],
     formGoals: [
       ['goals.tall', 'Tall goal (centre)', 0.1, 2, 12],
@@ -111,6 +120,11 @@
           const n = parseFloat(inp.value);
           if (!isFinite(n)) return;
           setp(S, key, n);
+          // a different wattage brings its typical current figures with it
+          if (key === 'robot.motor.watts') {
+            S.robot.motor = V.motorForWatts(S.robot.motor, n);
+            pushMotorFields();
+          }
           settingsChanged();
         });
         wrap.append(span, inp);
@@ -130,6 +144,7 @@
     $('startFromCode').checked = !!S.cfg.startFromCode;
     $('solidGoals').checked = !!S.cfg.solidGoals;
     renderAlignSummary();
+    updateMotorUi();
     renderChassisUi();
     $('lang').value = S.lang;
     $('autonLimit').value = String(S.autonLimit);
@@ -313,6 +328,29 @@
     return compiled;
   }
 
+  /** everything a run needs besides the code, from the current settings */
+  function runOptions(c, seed) {
+    return {
+      robot: S.robot,
+      start: S.start,
+      realism: { enabled: S.real.enabled, seed, chassis: S.chassis },
+      world: S.cfg.solidGoals ? { goals: S.goals, aligners: S.aligners } : null,
+      startFromSetPose: S.cfg.startFromCode,
+      cfg: { lateral: S.lateral, angular: S.angular, trackWidth: S.robot.trackWidth, horizontalDrift: S.cfg.horizontalDrift, pathMode: S.cfg.pathMode },
+      paths: paths.map((p) => ({
+        ids: [p.id, ...p.aliases],
+        name: p.id,
+        points: V.pointsInInches(p, p.unitOverride),
+        speedUnit: p.speedUnit,
+        ghost: p.ghost,
+        endIdx: p.endIdx,
+      })).concat(V.PathTool.runPaths()),
+      chassisNames: ['chassis', c.config.chassisName],
+      mechanismWaitMs: S.cfg.mechanismWait,
+      maxMs: 120000,
+    };
+  }
+
   async function runNow(opts) {
     opts = opts || {};
     if (running) {
@@ -333,26 +371,7 @@
       const missing = c.config.assets.filter((a) => !paths.some((p) => p.id === a || p.aliases.includes(a)) && !editorIds.includes(a));
       missing.forEach((a) => logLines.push(['warn', `ASSET(${a}): no matching path file loaded`]));
 
-      const res = await V.runSimulation({
-        js: c.js,
-        robot: S.robot,
-        start: S.start,
-        realism: { enabled: S.real.enabled, seed: runSeed, chassis: S.chassis },
-        world: S.cfg.solidGoals ? { goals: S.goals, aligners: S.aligners } : null,
-        startFromSetPose: S.cfg.startFromCode,
-        cfg: { lateral: S.lateral, angular: S.angular, trackWidth: S.robot.trackWidth, horizontalDrift: S.cfg.horizontalDrift, pathMode: S.cfg.pathMode },
-        paths: paths.map((p) => ({
-          ids: [p.id, ...p.aliases],
-          name: p.id,
-          points: V.pointsInInches(p, p.unitOverride),
-          speedUnit: p.speedUnit,
-          ghost: p.ghost,
-          endIdx: p.endIdx,
-        })).concat(V.PathTool.runPaths()),
-        chassisNames: ['chassis', c.config.chassisName],
-        mechanismWaitMs: S.cfg.mechanismWait,
-        maxMs: 120000,
-      });
+      const res = await V.runSimulation({ js: c.js, ...runOptions(c, runSeed) });
       result = res;
       // a setPose() at the start of the code decides where the robot starts: show it in the panel
       codeStart = res.startFromCode;
@@ -388,7 +407,36 @@
   }
 
   let debounce = 0;
+  /** the motor boxes show the typed values, the readout and the two derived inputs follow the motors */
+  function pushMotorFields() {
+    document.querySelectorAll('#formMotor input[data-key]').forEach((inp) => {
+      if (document.activeElement !== inp) inp.value = getp(S, inp.dataset.key);
+    });
+  }
+
+  function updateMotorUi() {
+    if (!$('motorAuto')) return;
+    S.robot.motor = V.sanitizeMotor(S.robot.motor);
+    const m = S.robot.motor;
+    $('motorAuto').checked = m.auto;
+    $('motorCartridge').value = String(m.cartridge);
+    $('motorCartridge').disabled = m.watts <= 5.5;
+    $('motorUnit').value = m.unit;
+    const speed = document.querySelector('[data-key="robot.speedPct"]');
+    const resp = document.querySelector('[data-key="robot.responseMs"]');
+    if (m.auto) {
+      const d = V.motorModel(S.robot, S.chassis);
+      S.robot.speedPct = Math.round(d.speedPct * 10) / 10;
+      S.robot.responseMs = d.respMs;
+      if (speed && document.activeElement !== speed) speed.value = S.robot.speedPct;
+      if (resp && document.activeElement !== resp) resp.value = S.robot.responseMs;
+    }
+    [speed, resp].forEach((i) => i && (i.disabled = m.auto));
+    $('motorInfo').textContent = m.auto ? V.describeMotors(S.robot, S.chassis) : 'Off: the real-life speed and motor response typed above are used.';
+  }
+
   function settingsChanged() {
+    updateMotorUi();
     updateTopSpeed();
     drawChassis();
     save();
@@ -730,6 +778,7 @@
       S.real = { enabled: S.real.enabled !== false };
       S.chassis = V.sanitizeChassis(S.chassis);
       S.aligners = V.sanitizeAligners(S.aligners);
+      S.robot.motor = V.sanitizeMotor(S.robot.motor);
       Object.keys(V.GOAL_DEFAULTS).forEach((k) => {
         const lo = k === 'chamfer' ? 0 : 2;
         const hi = k === 'chamfer' ? 3 : 12;
@@ -888,9 +937,26 @@
     new ResizeObserver(drawChassis).observe($('chassisCanvas'));
     renderChassisUi();
     initChangelog();
+    initTune();
     $('startFromCode').addEventListener('change', (e) => {
       S.cfg.startFromCode = e.target.checked;
       if (!e.target.checked) $('startNote').hidden = true;
+      settingsChanged();
+    });
+    $('motorAuto').addEventListener('change', (e) => {
+      S.robot.motor.auto = e.target.checked;
+      settingsChanged();
+    });
+    $('motorCartridge').addEventListener('change', (e) => {
+      S.robot.motor.cartridge = parseInt(e.target.value, 10);
+      settingsChanged();
+    });
+    $('motorUnit').addEventListener('change', (e) => {
+      const m = S.robot.motor;
+      const to = e.target.value;
+      if (to !== m.unit) m.weight = Math.round(m.weight * (to === 'lb' ? 2.20462 : 0.453592) * 10) / 10;
+      m.unit = to;
+      pushSettingsToUi();
       settingsChanged();
     });
     $('realOn').addEventListener('change', (e) => {
@@ -994,6 +1060,102 @@
       if (b) b.addEventListener('click', () => runNow({ seed: r.seed, autoplay: true }));
       ul.appendChild(li);
     });
+  }
+
+  // ------------------------------------------------------------------ auto-tune timeouts
+
+  function initTune() {
+    const dlg = $('tuneDlg');
+    if (!dlg || typeof dlg.showModal !== 'function') {
+      $('btnTune').hidden = true;
+      return;
+    }
+    let tuned = null;
+    $('btnTune').addEventListener('click', () => {
+      $('tuneOut').hidden = true;
+      $('tuneStatus').textContent = '';
+      dlg.showModal();
+    });
+    $('tuneClose').addEventListener('click', () => dlg.close());
+    $('tuneCopy').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText($('tuneCode').value);
+        $('tuneStatus').textContent = 'Copied.';
+      } catch (e) {
+        $('tuneCode').select();
+        $('tuneStatus').textContent = 'Select the code and copy it (Ctrl+C).';
+      }
+    });
+    $('tuneUse').addEventListener('click', () => {
+      $('code').value = $('tuneCode').value;
+      save();
+      dlg.close();
+      runNow({ autoplay: true });
+    });
+    $('tuneRun').addEventListener('click', async () => {
+      const btn = $('tuneRun');
+      btn.disabled = true;
+      $('tuneOut').hidden = true;
+      try {
+        const code = $('code').value;
+        const c = V.compileAuton(code, { language: S.lang, routine: S.routine, markSites: true });
+        if (!c.sites || !c.sites.length) {
+          $('tuneStatus').textContent = 'No motion calls (moveToPoint, turnToHeading, follow, ...) found in the code.';
+          return;
+        }
+        const num = (id, d) => (isFinite(parseFloat($(id).value)) ? parseFloat($(id).value) : d);
+        const options = { pct: num('tunePct', 20), extraMs: num('tuneExtra', 150), alignMs: num('tuneAlign', 400), alignedMarginMs: num('tuneAligned', 200) };
+        const draws = S.real.enabled ? Math.max(1, Math.min(8, Math.round(num('tuneDraws', 3)))) : 1;
+        const base = runSeed == null ? 1 : runSeed;
+        const seeds = Array.from({ length: draws }, (_, i) => base + i * 7919);
+        $('tuneStatus').textContent = 'Measuring...';
+        await new Promise((r) => setTimeout(r, 30));
+        const result = await V.autoTuneMany({
+          sites: c.sites,
+          options,
+          seeds,
+          simulate: (seed) => (extra) => V.runSimulation({ js: c.js, ...runOptions(c, seed), ...extra }),
+          onProgress: (i, n) => {
+            $('tuneStatus').textContent = `Measured ${i} of ${n} random draw${n > 1 ? 's' : ''}...`;
+          },
+        });
+        // how the auton does with the tuned timeouts, on the first draw, against the code as it is
+        const before = await V.runSimulation({ js: c.js, ...runOptions(c, seeds[0]) });
+        const after = await V.runSimulation({ js: c.js, ...runOptions(c, seeds[0]), siteTimeouts: result.tuned });
+        tuned = result;
+        renderTune(result, code, c.sites, before, after, draws);
+        $('tuneStatus').textContent = '';
+      } catch (e) {
+        $('tuneStatus').textContent = 'Could not auto-tune: ' + (e && e.message ? e.message : e);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
+
+  function renderTune(result, code, sites, before, after, draws) {
+    const sec = (ms) => (ms == null ? '-' : (ms / 1000).toFixed(2) + ' s');
+    const gain = before.durationMs - after.durationMs;
+    const lower = result.rows.filter((r) => r.editable && r.ms != null && r.ms < r.old).length;
+    const raise = result.rows.filter((r) => r.editable && r.ms != null && r.ms > r.old).length;
+    $('tuneSummary').textContent =
+      `Auton time with your timeouts ${sec(before.durationMs)}, with the tuned ones ${sec(after.durationMs)}` +
+      (gain > 50 ? ` (${(gain / 1000).toFixed(2)} s faster)` : gain < -50 ? ` (${(-gain / 1000).toFixed(2)} s slower)` : '') +
+      `. ${lower} timeout${lower === 1 ? '' : 's'} lowered` +
+      (raise ? `, ${raise} raised because the old one cut the motion off before it finished` : '') +
+      `. Checked against ${draws} random draw${draws > 1 ? 's' : ''} of the real-life error; each timeout is the longest any draw needed.`;
+    const kinds = { blocked: 'hit something', aligned: 'aligned', finished: '', cancelled: 'left as is', unfinished: 'left as is', notrun: 'did not run' };
+    const head = '<tr><th>Line</th><th>Call</th><th class="n">Your timeout</th><th class="n">Measured</th><th class="n">New timeout</th><th>Why</th></tr>';
+    const rows = result.rows
+      .map((r) => {
+        const measured = r.kind === 'blocked' || r.kind === 'aligned' || r.maxMs == null ? '-' : r.minMs === r.maxMs ? r.maxMs + ' ms' : `${r.minMs}-${r.maxMs} ms`;
+        const nw = r.ms == null ? '-' : r.ms + (r.editable ? '' : ' (change it by hand)');
+        return `<tr class="${r.kind}"><td class="n">${r.line}</td><td>${esc(r.method)}</td><td class="n">${esc(r.oldText)}</td><td class="n">${measured}</td><td class="n new">${nw}</td><td class="why">${esc(r.why)}${kinds[r.kind] && r.kind === 'blocked' ? '' : ''}</td></tr>`;
+      })
+      .join('');
+    $('tuneTable').innerHTML = head + rows;
+    $('tuneCode').value = V.rewriteTimeouts(code, sites, result.tuned);
+    $('tuneOut').hidden = false;
   }
 
   // ------------------------------------------------------------------ chassis
