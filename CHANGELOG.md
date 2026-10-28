@@ -103,6 +103,13 @@ grouped by date.
   have seen the newest entries).
 
 ### Changed
+- **Aligner sketch grid lines up with the drivetrain's edge.** The grid is anchored on the edge you are drawing
+  on (the front edge for front aligners, the back edge for back ones), so that edge is a grid line and snapping
+  (1, 0.5, 0.25 in) counts whole steps from it, instead of landing 0.25 or 0.5 in off a 15 in robot's edge. The
+  rows are labelled with their real positions, the robot's centre lines are dotted, and the status line says how
+  far past the edge the cursor is.
+- "Aligned within" is explained properly: on the page, in the aligner editor (next to the setting, with the
+  circle it draws round the alignment point) and in the README.
 - The header says **WAYPOINT** in the logo's own lettering (it is cut from the logo and takes the theme colours).
 - The page uses the whole width: the field and the settings share it, up to 1900 px.
 - The example auton now uses field coordinates (`chassis.setPose(-58, -58, 0)`, then field positions), as real

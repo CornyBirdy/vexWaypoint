@@ -78,7 +78,18 @@
     // ------------------------------------------------------------ geometry helpers
     const toScreen = (x, y) => ({ x: size.w / 2 + (x - view.cx) * view.scale, y: size.h / 2 - (y - view.cy) * view.scale });
     const fromScreen = (px, py) => ({ x: (px - size.w / 2) / view.scale + view.cx, y: view.cy - (py - size.h / 2) / view.scale });
-    const snapPt = (p) => (snap > 0 ? { x: Math.round(p.x / snap) * snap, y: Math.round(p.y / snap) * snap } : { x: r3(p.x), y: r3(p.y) });
+    // The grid is anchored on the edge of the drivetrain that the aligners are on (the front edge, or the back
+    // one), so that edge is a grid line and snapping counts whole steps from it. The robot's centre is the
+    // other anchor, across.
+    const gridOy = () => {
+      const L = state().robot.length;
+      return side === 'back' ? -L / 2 : L / 2;
+    };
+    const snapPt = (p) => {
+      if (!(snap > 0)) return { x: r3(p.x), y: r3(p.y) };
+      const oy = gridOy();
+      return { x: r3(Math.round(p.x / snap) * snap), y: r3(oy + Math.round((p.y - oy) / snap) * snap) };
+    };
     const mirrorShape = (s) => {
       if (s.type === 'line') return { type: 'line', x1: -s.x1, y1: s.y1, x2: -s.x2, y2: s.y2 };
       if (s.type === 'arc') return { type: 'arc', cx: -s.cx, cy: s.cy, r: s.r, a0: wrap180(180 - s.a0), sweep: -s.sweep };
@@ -178,12 +189,14 @@
       ctx.fillStyle = themeColor('surface', '#222');
       ctx.fillRect(0, 0, size.w, size.h);
 
-      // inch grid
+      // inch grid: vertical lines every inch from the robot's centre, horizontal ones every inch from the edge
+      // of the drivetrain the aligners are on (so that edge is a grid line); heavier every 6 in
       const lo = fromScreen(0, size.h);
       const hi = fromScreen(size.w, 0);
+      const oy = gridOy();
       ctx.lineWidth = 1;
+      ctx.strokeStyle = muted;
       for (let g = Math.floor(lo.x); g <= Math.ceil(hi.x); g++) {
-        ctx.strokeStyle = muted;
         ctx.globalAlpha = g % 6 === 0 ? 0.42 : 0.14;
         const a = toScreen(g, 0).x;
         ctx.beginPath();
@@ -191,21 +204,30 @@
         ctx.lineTo(a, size.h);
         ctx.stroke();
       }
-      for (let g = Math.floor(lo.y); g <= Math.ceil(hi.y); g++) {
-        ctx.strokeStyle = muted;
-        ctx.globalAlpha = g % 6 === 0 ? 0.42 : 0.14;
-        const a = toScreen(0, g).y;
+      for (let k = Math.floor(lo.y - oy); k <= Math.ceil(hi.y - oy); k++) {
+        ctx.globalAlpha = k % 6 === 0 ? 0.42 : 0.14;
+        const a = toScreen(0, oy + k).y;
         ctx.beginPath();
         ctx.moveTo(0, a);
         ctx.lineTo(size.w, a);
         ctx.stroke();
       }
+      // the robot's centre lines
+      ctx.globalAlpha = 0.5;
+      ctx.setLineDash([2, 4]);
+      ctx.beginPath();
+      ctx.moveTo(toScreen(0, 0).x, 0);
+      ctx.lineTo(toScreen(0, 0).x, size.h);
+      ctx.moveTo(0, toScreen(0, 0).y);
+      ctx.lineTo(size.w, toScreen(0, 0).y);
+      ctx.stroke();
+      ctx.setLineDash([]);
       ctx.globalAlpha = 1;
       ctx.fillStyle = muted;
       ctx.font = '10px ui-monospace, monospace';
       for (let g = Math.ceil(lo.x / 6) * 6; g <= hi.x; g += 6) if (g) ctx.fillText(String(g), toScreen(g, 0).x + 2, toScreen(0, 0).y - 3);
-      for (let g = Math.ceil(lo.y / 6) * 6; g <= hi.y; g += 6) if (g) ctx.fillText(String(g), toScreen(0, 0).x + 3, toScreen(0, g).y - 2);
-      ctx.fillText('inches, robot centre = 0, front is up', 8, size.h - 8);
+      for (let k = Math.ceil((lo.y - oy) / 6) * 6; k + oy <= hi.y; k += 6) ctx.fillText(String(r3(oy + k)), toScreen(0, 0).x + 3, toScreen(0, oy + k).y - 2);
+      ctx.fillText(`inches from the robot's centre; the ${side} edge is a grid line`, 8, size.h - 8);
 
       // body + wheels
       const a = toScreen(-robot.width / 2, robot.length / 2);
@@ -533,7 +555,11 @@
       const t = TOOLS[tool];
       let line = t.hint;
       if (tool !== 'select' && pending.length) line += ` (${pending.length} point${pending.length > 1 ? 's' : ''} so far, Esc cancels)`;
-      if (hover) line += `   x ${hover.x}  y ${hover.y} in`;
+      if (hover) {
+        const out = hover.y - gridOy();
+        const beyond = side === 'back' ? -out : out;
+        line += `   x ${hover.x}  y ${hover.y} in  (${r3(Math.abs(beyond))} in ${beyond >= 0 ? 'beyond' : 'behind'} the ${side} edge)`;
+      }
       $('alignStatus').textContent = line;
     }
 
@@ -549,7 +575,8 @@
       html += `<label class="check"><input type="checkbox" data-set="on"${st.on ? ' checked' : ''}> ${side} aligners on</label>`;
       html += `<label class="field"><span>Material</span><select data-set="material">${Object.keys(NS.MATERIALS).map((k) => `<option value="${k}"${k === st.material ? ' selected' : ''}>${esc(NS.MATERIALS[k].label)}</option>`).join('')}</select></label>`;
       html += `<label class="field"><span>Stock thickness (in)</span><input type="number" step="0.0625" min="0.05" max="1" data-set="thickness" value="${st.thickness}"></label>`;
-      html += `<label class="field"><span>Aligned within (in)</span><input type="number" step="0.05" min="0" max="6" data-set="tol" value="${st.tol}"></label>`;
+      html += `<label class="field" title="How close a goal has to get to the alignment point to count as aligned"><span>Aligned within (in)</span><input type="number" step="0.05" min="0" max="6" data-set="tol" value="${st.tol}"></label>`;
+      html += `<p class="note"><b>What "aligned within" means.</b> The green diamond is the alignment point and the dashed green circle round it is this many inches wide (its radius). If any part of a goal's side or corner reaches inside that circle, the goal counts as aligned. 0 means the goal has to touch the point itself; a bigger number is more forgiving. It is about how close the goal gets, not how wide the aligner is. With real-life error on the circle is 5% smaller.</p>`;
       html += `<label class="check"><input type="checkbox" data-set="auto"${st.auto ? ' checked' : ''}> alignment point = middle of the back of the aligners</label>`;
       html += `<div class="pt"><label class="field"${st.auto ? ' data-why="Greyed out: the point is automatic. Untick the box above to place it by hand."' : ''}><span>Point x</span><input type="number" step="0.125" data-set="px" value="${r3(ap.x)}"${st.auto ? ' disabled' : ''}></label><label class="field"${st.auto ? ' data-why="Greyed out: the point is automatic."' : ''}><span>Point y</span><input type="number" step="0.125" data-set="py" value="${r3(ap.y)}"${st.auto ? ' disabled' : ''}></label></div>`;
       html += '<h3>Selected shape</h3>';
