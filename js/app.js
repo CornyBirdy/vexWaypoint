@@ -56,7 +56,6 @@
       ['robot.motor.stallA', 'Stall current (A)', 0.1, 0.2, 30],
       ['robot.motor.freeA', 'Free current (A)', 0.01, 0, 5],
       ['robot.motor.limitA', 'Current limit (A)', 0.1, 0.2, 30],
-      ['robot.motor.volts', 'Battery voltage, driving (V)', 0.1, 6, 14],
       ['robot.motor.weight', 'Robot weight', 0.1, 0.5, 60],
     ],
     formGoals: [

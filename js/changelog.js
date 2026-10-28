@@ -10,7 +10,7 @@
           "name": "Added",
           "items": [
             {
-              "text": "**Motors and weight.** Enter the motor wattage (11 W or 5.5 W), stall / free / limit current, battery voltage, motors per side, cartridge, robot weight (kg or lb) and the sim works out the **real-life speed** and the **motor response** itself (the two boxes are filled in and locked). It is a DC motor model with a current limit, the gearing from the wheel RPM, rolling resistance from your wheel types, and the robot's mass: a heavier robot or fewer motors accelerate slower, a flat battery is slower, six 11 W blue-cartridge motors on a 5.5 kg robot reach about 94% of the ideal speed. Untick it to type the numbers in as before. The current figures are typical (VEX publishes the stall torque and the 2.5 A limit; the true stall and free current come from a community fit).",
+              "text": "**Motors and weight.** Enter the motor wattage (11 W or 5.5 W), stall / free / limit current, motors per side, cartridge, robot weight (kg or lb) and the sim works out the **real-life speed** and the **motor response** itself (the two boxes are filled in and locked). It is a DC motor model with a current limit, the gearing from the wheel RPM, rolling resistance from your wheel types, and the robot's mass: a heavier robot or fewer motors accelerate slower, six 11 W blue-cartridge motors on a 5.5 kg robot reach about 94% of the ideal speed. Untick it to type the numbers in as before. The current figures are typical (VEX publishes the stall torque and the 2.5 A limit; the true stall and free current come from a community fit).",
               "sub": []
             },
             {
