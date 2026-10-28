@@ -74,6 +74,7 @@
       <label class="check"><input type="checkbox" id="optPaths" checked> paths</label>
       <label class="check"><input type="checkbox" id="optAxes" checked> code axes</label>
       <label class="check"><input type="checkbox" id="optAim" checked> target</label>
+      <label class="check"><input type="checkbox" id="optOdom" checked> odometry ghost</label>
     </div>
 
     <details class="sec" open>
@@ -92,6 +93,16 @@
     <details class="sec" open>
       <summary>Drivetrain <span class="aside" id="topSpeed"></span></summary>
       <div class="props" id="formDrive"></div>
+    </details>
+
+    <details class="sec" open>
+      <summary>Real-life error <span class="aside" id="realAside">gyro drift + wheel slip</span></summary>
+      <label class="check realtoggle"><input type="checkbox" id="realOn"> simulate gyro drift and wheel slip</label>
+      <div class="props" id="formReal"></div>
+      <div class="actions">
+        <button id="btnSeed" class="btn" type="button" title="Pick a different random draw of gyro bias, grip and noise">New random seed</button>
+      </div>
+      <p class="note">The robot gets its own random draw (set by the seed, so a run repeats exactly): its gyro has a bias, a turn-rate error and noise, and its wheels spin or skid when the motors ask for more than the floor grips. The odometry only sees the wheels and the gyro, so it slowly disagrees with where the robot really is. <code>setPose()</code> resets it, like a wall reset. Set a value to 0 to switch that effect off.</p>
     </details>
 
     <details class="sec" open>

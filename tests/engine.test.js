@@ -15,7 +15,7 @@ const cfg = (extra) => ({
   ...extra,
 });
 
-async function run(code, { start = { x: 0, y: 0, h: 0 }, paths = [], language = 'cpp', cfgExtra } = {}) {
+async function run(code, { start = { x: 0, y: 0, h: 0 }, paths = [], language = 'cpp', cfgExtra, realism } = {}) {
   const c = V.compileAuton(code, { language });
   const res = await V.runSimulation({
     js: c.js,
@@ -24,7 +24,8 @@ async function run(code, { start = { x: 0, y: 0, h: 0 }, paths = [], language = 
     cfg: cfg(cfgExtra),
     paths,
     chassisNames: ['chassis', c.config.chassisName],
-    maxMs: 60000,
+    maxMs: 120000,
+    realism,
   });
   const f = res.frames;
   if (!f) return { res, c, end: null };
@@ -392,6 +393,107 @@ const angDiff = (a, b) => Math.abs(normDeg(a - b));
   const b = await V.runSimulation({ js: c2.js, robot: slowRobot, start: { x: 0, y: 0, h: 0 }, cfg: cfg(), paths: [], chassisNames: ['chassis'], maxMs: 60000 });
   assert(b.durationMs > a.end.t, `slower robot should take longer (${b.durationMs} vs ${a.end.t})`);
   console.log('ok speed percent', a.end.t, 'ms vs', b.durationMs, 'ms');
+
+
+  // --- real-life error: gyro drift + wheel slip (the robot has a true pose and an odometry pose)
+  {
+    const OFF = { gyroDrift: 0, gyroScale: 0, gyroNoise: 0, grip: 0, gripVar: 0, latGrip: 0, scrub: 1 };
+    const R = (extra) => ({ enabled: true, seed: 1, ...OFF, ...extra });
+    const drive = `chassis.moveToPoint(0, 48, 4000, {}, false); chassis.turnToHeading(90, 2000, {}, false);
+      chassis.moveToPoint(36, 48, 4000, {}, false); chassis.turnToHeading(180, 2000, {}, false); chassis.moveToPoint(36, 0, 4000, {}, false);`;
+    const lastCode = (r) => {
+      const f = r.res.frames;
+      const n = f.t.length - 1;
+      return { x: f.cx[n], y: f.cy[n], t: f.ct[n] };
+    };
+
+    // every effect switched off = the ideal robot, to the last digit
+    const ideal = await run(drive, { language: 'js' });
+    let r = await run(drive, { language: 'js', realism: R() });
+    near(r.end.x, ideal.end.x, 1e-6, 'zeroed realism x');
+    near(r.end.y, ideal.end.y, 1e-6, 'zeroed realism y');
+    near(r.end.h, ideal.end.h, 1e-6, 'zeroed realism heading');
+    assert.strictEqual(r.end.t, ideal.end.t, 'zeroed realism timing');
+    assert.strictEqual(r.res.realism.endPosErr < 1e-6, true, 'no odometry error when nothing is imperfect');
+    const off = await run(drive, { language: 'js', realism: { ...R(), enabled: false, gyroDrift: 5 } });
+    assert.strictEqual(off.end.x, ideal.end.x, 'disabled realism changes nothing');
+    assert.strictEqual(off.res.realism, null, 'no real-life stats when it is off');
+
+    // a seed repeats exactly, another seed is another robot
+    const d = { language: 'js' };
+    const a1 = await run(drive, { ...d, realism: { enabled: true, seed: 7 } });
+    const a2 = await run(drive, { ...d, realism: { enabled: true, seed: 7 } });
+    const a3 = await run(drive, { ...d, realism: { enabled: true, seed: 8 } });
+    assert.deepStrictEqual(a1.end, a2.end, 'same seed, same run');
+    assert(Math.abs(a1.end.h - a3.end.h) > 1e-6 || Math.abs(a1.end.x - a3.end.x) > 1e-6, 'different seed, different run');
+    assert(a1.res.realism.endPosErr > 0.05 && a1.res.realism.endPosErr < 10, 'default error is small but real: ' + a1.res.realism.endPosErr);
+    assert(a1.res.events.some((e) => /Real-life error \(seed 7\)/.test(e.text)), 'the run log reports it');
+
+    // gyro drift: a robot standing still for a minute is not where its gyro says
+    let worst = 0;
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      r = await run('pros::delay(60000);', { realism: R({ seed, gyroDrift: 2 }) });
+      worst = Math.max(worst, r.res.realism.endHeadErr);
+      near(r.end.h, 0, 1e-9, 'a parked robot does not move while its gyro drifts');
+      assert(r.res.realism.endHeadErr < 12, 'drift stays plausible: ' + r.res.realism.endHeadErr);
+    }
+    assert(worst > 0.3, 'a 2 deg/min gyro drifts by a visible amount in a minute: ' + worst);
+    r = await run('pros::delay(60000);', { realism: R({ gyroNoise: 0.3 }) });
+    assert(r.res.realism.endHeadErr < 1.5 && r.res.realism.maxHeadErr > 0.05, 'gyro noise is a jitter, not a drift');
+
+    // gyro turn-rate error: the code believes it turned 90, the robot turned a little more or less
+    let missed = 0;
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      r = await run('chassis.turnToHeading(90, 3000, {}, false);', { language: 'js', realism: R({ seed, gyroScale: 4 }) });
+      near(lastCode(r).t, 90, 1.5, 'odometry thinks it reached 90');
+      missed = Math.max(missed, Math.abs(normDeg(r.end.h) - 90));
+    }
+    assert(missed > 0.8 && missed < 12, 'but the real robot turned a different amount: off by ' + missed);
+
+    // wheel slip: slippery floor + hard drive = the wheels turn more than the robot moves
+    const slippery = await run('chassis.moveToPoint(0, 48, 5000, {}, false);', { language: 'js', realism: R({ grip: 0.25 }) });
+    const sticky = await run('chassis.moveToPoint(0, 48, 5000, {}, false);', { language: 'js', realism: R({ grip: 5 }) });
+    near(lastCode(slippery).y, 48, 2.5, 'odometry believes it arrived');
+    assert(slippery.end.y < 48 - 1, 'the real robot fell short: ' + slippery.end.y);
+    near(sticky.end.y, 48, 1.5, 'plenty of grip, no error');
+    assert(slippery.res.realism.slipDist > sticky.res.realism.slipDist + 1, 'slip distance is reported');
+
+    // skidding sideways in a fast curve needs low sideways grip
+    const curve = 'chassis.moveToPose(36, 36, 90, 4000, {.lead = 0.5}, false);';
+    const grippy = await run(curve, { realism: R({ latGrip: 1.5 }) });
+    const icy = await run(curve, { realism: R({ latGrip: 0.03 }) });
+    assert(icy.res.realism.maxSlide > grippy.res.realism.maxSlide + 1, `low grip slides: ${icy.res.realism.maxSlide} vs ${grippy.res.realism.maxSlide}`);
+    assert(icy.res.realism.maxPosErr > grippy.res.realism.maxPosErr, 'sliding fools the odometry');
+
+    // turn scrub: the robot turns less than its wheels say, the gyro-based controller keeps going until it has turned
+    r = await run('chassis.turnToHeading(90, 3000, {}, false);', { language: 'js', realism: R({ scrub: 1.3 }) });
+    near(normDeg(r.end.h), 90, 2.5, 'a gyro-controlled turn still ends on target with scrub');
+
+    // wheels keep turning against a wall: odometry counts distance the robot never covered
+    const wall = 'chassis.moveToPoint(0, 100, 3000, {}, false);';
+    const idealWall = await run(wall, { language: 'js' });
+    const realWall = await run(wall, { language: 'js', realism: R({ grip: 0.8 }) });
+    assert.strictEqual(idealWall.res.motions[0].reason, 'timeout', 'ideal robot pushes on the wall until the timeout');
+    assert(realWall.end.y < 66, 'the wall stops the robot: ' + realWall.end.y);
+    assert.strictEqual(realWall.res.motions[0].reason, 'settled', 'its wheels kept turning, so the odometry thinks it arrived');
+    assert(realWall.res.realism.maxPosErr > 20, 'odometry is far off after pushing a wall');
+
+    // setPose is a reset: odometry error is cleared, the real robot stays where it is
+    r = await run('chassis.moveToPoint(0, 48, 4000, {}, false); chassis.setPose(0, 48, 0); pros::delay(50);', { realism: R({ grip: 0.25 }) });
+    near(lastCode(r).y, 48, 0.5, 'getPose reports the declared pose (the wheels have nearly stopped)');
+    near(lastCode(r).x, 0, 0.5, 'getPose x after setPose');
+    // the reset itself, on the robot: sensed pose snaps to the real one
+    const rb = new V.Robot(ROBOT, { x: 0, y: 0, h: 0 }, R({ grip: 0.25 }));
+    rb.cmdL = rb.cmdR = 127;
+    for (let i = 0; i < 100; i++) rb.step(10);
+    assert(Math.hypot(rb.sx - rb.x, rb.sy - rb.y) > 0.1, 'odometry disagrees with the robot after slipping');
+    rb.resetOdometry();
+    near(rb.sx, rb.x, 1e-12, 'reset x');
+    near(rb.sy, rb.y, 1e-12, 'reset y');
+    near(rb.sh, rb.h, 1e-12, 'reset heading');
+    assert(r.res.realism.maxPosErr > 0.5, 'there was an error before the reset: ' + r.res.realism.maxPosErr);
+    console.log('ok real-life error: gyro drift, wheel slip, sliding, scrub, wall, setPose, seeds');
+  }
 
   console.log('\nALL ENGINE TESTS PASSED');
 })().catch((e) => {

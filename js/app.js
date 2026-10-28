@@ -11,6 +11,7 @@
     start: { x: -60, y: -60, h: 0 },
     robot: { wheelDiameter: 3.25, rpm: 450, speedPct: 90, trackWidth: 12, length: 15, width: 15, responseMs: 80 },
     cfg: { horizontalDrift: 2, pathMode: 'field', mechanismWait: 500 },
+    real: { ...V.REAL_DEFAULTS },
     lateral: { ...V.DEFAULT_LATERAL },
     angular: { ...V.DEFAULT_ANGULAR },
     lang: 'cpp',
@@ -45,6 +46,16 @@
       ['robot.responseMs', 'Motor response (ms)', 5, 1, 400],
       ['cfg.horizontalDrift', 'Horizontal drift', 0.5, 0, 50],
       ['cfg.mechanismWait', 'Lift / claw wait (ms)', 50, 0, 5000],
+    ],
+    formReal: [
+      ['real.seed', 'Random seed', 1, 0, 999999],
+      ['real.gyroDrift', 'Gyro drift (&deg;/min, 1&sigma;)', 0.05, 0, 10],
+      ['real.gyroScale', 'Gyro turn error (%, 1&sigma;)', 0.1, 0, 5],
+      ['real.gyroNoise', 'Gyro noise (&deg;, 1&sigma;)', 0.01, 0, 2],
+      ['real.grip', 'Wheel grip, drive (&mu;)', 0.05, 0, 3],
+      ['real.latGrip', 'Wheel grip, sideways (&mu;)', 0.05, 0, 3],
+      ['real.gripVar', 'Grip change per run (%)', 1, 0, 40],
+      ['real.scrub', 'Turn scrub (x track width)', 0.01, 1, 2],
     ],
     formLat: controllerFields('lateral'),
     formAng: controllerFields('angular'),
@@ -116,6 +127,8 @@
     });
     $('pathMode').value = S.cfg.pathMode;
     $('pathModeNote').innerHTML = PATH_MODE_NOTES[S.cfg.pathMode];
+    $('realOn').checked = !!S.real.enabled;
+    $('formReal').classList.toggle('off', !S.real.enabled);
     $('lang').value = S.lang;
     $('autonLimit').value = String(S.autonLimit);
     $('fieldStyle').value = S.fieldStyle;
@@ -312,6 +325,7 @@
         js: c.js,
         robot: S.robot,
         start: S.start,
+        realism: S.real,
         cfg: { lateral: S.lateral, angular: S.angular, trackWidth: S.robot.trackWidth, horizontalDrift: S.cfg.horizontalDrift, pathMode: S.cfg.pathMode },
         paths: paths.map((p) => ({
           ids: [p.id, ...p.aliases],
@@ -484,6 +498,7 @@
       state.pose = { x: f.x[idx], y: f.y[idx], h: f.h[idx] };
       state.hit = !!f.hit[idx];
       if ($('optTrail').checked) state.trail = trail.slice(0, idx + 1);
+      if ($('optOdom').checked && S.real.enabled && f.ox) state.odom = { x: f.ox[idx], y: f.oy[idx], h: f.oh[idx] };
       const mi = f.mi[idx];
       if (mi >= 0 && result.motions[mi] && result.motions[mi].follow) state.followPath = result.motions[mi].follow;
       if ($('optAim').checked && isFinite(f.ax[idx])) state.aim = { x: f.ax[idx], y: f.ay[idx] };
@@ -509,7 +524,8 @@
     }
     $('tTime').textContent = (f.t[idx] / 1000).toFixed(2);
     $('tField').textContent = `${f.x[idx].toFixed(1)}, ${f.y[idx].toFixed(1)}  ${norm360(f.h[idx]).toFixed(0)}°`;
-    $('tCode').textContent = `${f.cx[idx].toFixed(1)}, ${f.cy[idx].toFixed(1)}  ${f.ct[idx].toFixed(0)}°`;
+    const off = S.real.enabled ? `  (off by ${Math.hypot(f.ox[idx] - f.x[idx], f.oy[idx] - f.y[idx]).toFixed(1)} in, ${Math.abs(wrap180(f.oh[idx] - f.h[idx])).toFixed(1)}°)` : '';
+    $('tCode').textContent = `${f.cx[idx].toFixed(1)}, ${f.cy[idx].toFixed(1)}  ${f.ct[idx].toFixed(0)}°${off}`;
     const v = (f.vl[idx] + f.vr[idx]) / 2;
     $('tSpeed').textContent = `${v.toFixed(1)} in/s  (L ${f.vl[idx].toFixed(0)}, R ${f.vr[idx].toFixed(0)})`;
     const m = mi >= 0 ? result.motions[mi] : null;
@@ -523,6 +539,7 @@
     }
   }
   const norm360 = (d) => ((d % 360) + 360) % 360;
+  const wrap180 = (d) => norm360(d + 180) - 180;
 
   // ------------------------------------------------------------------ pointer interaction
 
@@ -765,7 +782,17 @@
       requestDraw();
     });
     $('speed').addEventListener('change', requestDraw);
-    ['optTrail', 'optPaths', 'optAxes', 'optAim'].forEach((id) => $(id).addEventListener('change', requestDraw));
+    $('realOn').addEventListener('change', (e) => {
+      S.real.enabled = e.target.checked;
+      $('formReal').classList.toggle('off', !S.real.enabled);
+      settingsChanged();
+    });
+    $('btnSeed').addEventListener('click', () => {
+      S.real.seed = 1 + Math.floor(Math.random() * 999999);
+      pushSettingsToUi();
+      settingsChanged();
+    });
+    ['optTrail', 'optPaths', 'optAxes', 'optAim', 'optOdom'].forEach((id) => $(id).addEventListener('change', requestDraw));
 
     window.addEventListener('keydown', (e) => {
       const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);

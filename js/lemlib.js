@@ -603,14 +603,23 @@
     }
 
     // ----- frames
+    /** where the robot's odometry says it is (what getPose() and every motion controller use) */
     poseRad() {
       const r = this.robot;
+      return this._toCode(r.sx, r.sy, r.sh);
+    }
+    /** where the robot really is, in the code frame (identical to poseRad() unless real-life error is on) */
+    truePoseRad() {
+      const r = this.robot;
+      return this._toCode(r.x, r.y, r.h);
+    }
+    _toCode(fx, fy, fh) {
       const f = this.frame;
-      const vx = r.x - f.px;
-      const vy = r.y - f.py;
+      const vx = fx - f.px;
+      const vy = fy - f.py;
       const c = Math.cos(f.psi);
       const s = Math.sin(f.psi);
-      return { x: vx * c - vy * s, y: vx * s + vy * c, t: r.h - f.psi };
+      return { x: vx * c - vy * s, y: vx * s + vy * c, t: fh - f.psi };
     }
     codeToField(x, y) {
       const f = this.frame;
@@ -632,12 +641,18 @@
       if (th < 0) th += 360;
       return { x: p.x, y: p.y, theta: th, heading: th };
     }
+    /**
+     * Declares the robot to be at (x, y, thetaDeg). The code frame is re-anchored on where the robot
+     * really is, and odometry restarts from there (like a wall reset): accumulated position and heading
+     * error is cleared, but the gyro keeps drifting afterwards.
+     */
     setPose(x, y, thetaDeg) {
       const r = this.robot;
       const psi = r.h - thetaDeg * D2R;
       const c = Math.cos(psi);
       const s = Math.sin(psi);
       this.frame = { px: r.x - (x * c + y * s), py: r.y - (-x * s + y * c), psi };
+      r.resetOdometry();
     }
 
     drive(l, r) {

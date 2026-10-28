@@ -165,6 +165,7 @@
   --ov-robot: #a78bfa;
   --ov-robot-edge: #1e1240;
   --ov-hit: #f28b82;
+  --ov-odom: #4dd0e1; /* where the odometry thinks the robot is */
   --ov-axis-x: #f28b82;
   --ov-axis-y: #81c995;
   --ov-label: #ffffff;

@@ -19,7 +19,7 @@
     robot: 'ov-robot', robotEdge: 'ov-robot-edge', hit: 'ov-hit', trail: 'ov-trail', guide: 'ov-guide',
     axisX: 'ov-axis-x', axisY: 'ov-axis-y', label: 'ov-label', curve: 'ov-curve', curveSel: 'ov-curve-sel',
     handleLine: 'ov-handle-line', point: 'ov-point', pointEdge: 'ov-point-edge', pointLocked: 'ov-point-locked',
-    ghostFill: 'ov-ghost-fill', ghostEdge: 'ov-ghost-edge',
+    ghostFill: 'ov-ghost-fill', ghostEdge: 'ov-ghost-edge', odom: 'ov-odom',
   };
   const hex = {};
   let paletteVersion = -1;
@@ -110,6 +110,7 @@
       if (s.trail && s.trail.length > 1) this.drawPolyline(ctx, s.trail, C.trail, 2, false);
       if (s.ghost) this.drawRobot(ctx, s.ghost, s.robot, { ghost: true, handle: s.ghostHandle });
       if (s.aim && isFinite(s.aim.x)) this.drawAim(ctx, s.aim);
+      if (s.odom) this.drawRobot(ctx, s.odom, s.robot, { odom: true });
       if (s.pose) this.drawRobot(ctx, s.pose, s.robot, { hit: s.hit });
       if (s.codeAxes) this.drawCodeAxes(ctx, s.codeAxes);
       this.drawWatermark(ctx);
@@ -520,6 +521,20 @@
       ctx.save();
       ctx.translate(this.wx(pose.x), this.wy(pose.y));
       ctx.rotate((pose.h * Math.PI) / 180);
+      if (o.odom) {
+        // outline only: the robot as its own odometry sees it
+        ctx.strokeStyle = C.odom;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 3]);
+        ctx.strokeRect(-W / 2, -L / 2, W, L);
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(0, -L / 2);
+        ctx.stroke();
+        ctx.restore();
+        return;
+      }
       ctx.fillStyle = o.ghost ? C.ghostFill : o.hit ? C.hit : C.robot;
       ctx.globalAlpha = o.ghost ? 1 : 0.8;
       ctx.fillRect(-W / 2, -L / 2, W, L);

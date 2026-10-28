@@ -48,12 +48,85 @@
 
   // ---------------------------------------------------------------- physics
 
+  // ---------------------------------------------------------------- real-life error model
+
+  const G = 386.09; // gravity, in / s^2
+  const LAT_TAU = 0.015; // s: how fast the tyres kill sideways speed while they still have grip
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+  /** small seeded generator (mulberry32) so a seed always gives the same run */
+  function makeRng(seed) {
+    let a = (Math.floor(Number(seed) || 0) + 0x9e3779b9) >>> 0;
+    const next = () => {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    next();
+    next();
+    return {
+      next,
+      /** standard normal (Box-Muller) */
+      randn() {
+        const u = Math.max(next(), 1e-12);
+        return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * next());
+      },
+    };
+  }
+
+  /** what the UI calls the "realism" settings */
+  const REAL_DEFAULTS = {
+    enabled: true,
+    seed: 1,
+    gyroDrift: 0.3, // deg / min, 1 sigma of the sensor's bias (changes from run to run)
+    gyroScale: 0.5, // %, 1 sigma of the turn-rate scale error
+    gyroNoise: 0.05, // deg, 1 sigma of the reading noise
+    grip: 0.8, // friction coefficient driving forwards / braking (0 = wheels never slip)
+    gripVar: 5, // %, 1 sigma of how much the grip changes from run to run
+    latGrip: 0.6, // friction coefficient sideways (0 = never slides)
+    scrub: 1.05, // effective track width / measured track width
+  };
+
+  /** turns the UI settings into the numbers the physics uses; null = ideal robot */
+  function resolveReal(o) {
+    if (!o || !o.enabled) return null;
+    const n = (k) => (isFinite(Number(o[k])) && o[k] !== null && o[k] !== '' ? Number(o[k]) : REAL_DEFAULTS[k]);
+    const rng = makeRng(n('seed'));
+    const gripMul = clamp(1 + (n('gripVar') / 100) * rng.randn(), 0.5, 1.5);
+    const grip = Math.max(0, n('grip'));
+    const latGrip = Math.max(0, n('latGrip'));
+    const drift = Math.max(0, n('gyroDrift'));
+    return {
+      rng,
+      seed: n('seed'),
+      // drawn once per run, always in this order
+      biasDegPerS: (drift / 60) * rng.randn(),
+      scale: (Math.max(0, n('gyroScale')) / 100) * rng.randn(),
+      walkDegPerSqrtS: (drift / 60) * 0.05, // the bias wanders a little during the run
+      noiseRad: Math.max(0, n('gyroNoise')) * D2R,
+      longLim: grip > 0 ? grip * gripMul * G : Infinity, // max change of ground speed, in / s^2
+      latLim: latGrip * gripMul * G,
+      latOn: latGrip > 0,
+      scrub: Math.max(1, n('scrub')),
+      gripMul,
+    };
+  }
+
+  // ---------------------------------------------------------------- physics
+
   class Robot {
     /**
      * @param {object} p  wheelDiameter(in) rpm speedPct trackWidth length width responseMs
      * @param {{x:number,y:number,h:number}} start field pose, h = compass degrees
+     * @param {object} [realism] real-life error settings (see REAL_DEFAULTS); omitted = ideal robot
+     *
+     * The robot has two poses. x / y / h is where it really is. sx / sy / sh is what its odometry
+     * thinks: wheel travel measured at the wheels (so wheel slip fools it) with the heading taken from
+     * the gyro (so gyro drift fools it). The motion controllers only ever see the second one.
      */
-    constructor(p, start) {
+    constructor(p, start, realism) {
       this.p = p;
       this.x = start.x;
       this.y = start.y;
@@ -63,6 +136,27 @@
       this.cmdL = 0;
       this.cmdR = 0;
       this.touching = false;
+      this.real = resolveReal(realism);
+      // ground speed under each side of the drivetrain, and sideways speed of the body (in / s)
+      this.uL = 0;
+      this.uR = 0;
+      this.bv = 0;
+      // gyro
+      const re = this.real;
+      this.gyro = 0; // what the gyro has integrated (rad)
+      this.gyroBias = re ? re.biasDegPerS * D2R : 0; // rad / s
+      this.gyroNoise = 0;
+      // statistics for the run log
+      this.slipDist = 0; // inches the wheels turned without the robot moving with them
+      this.maxSlide = 0; // fastest sideways slide, in / s
+      this.resetOdometry();
+    }
+    /** odometry restarts at the real pose (setPose); the gyro itself keeps its drift */
+    resetOdometry() {
+      this.sx = this.x;
+      this.sy = this.y;
+      this.shOff = this.h - this.gyro - this.gyroNoise;
+      this.sh = this.h;
     }
     /** max wheel surface speed in inches / second */
     get vmax() {
@@ -72,17 +166,63 @@
     step(ms) {
       const dt = ms / 1000 / SUBSTEPS;
       const p = this.p;
+      const re = this.real;
       const alpha = 1 - Math.exp(-(dt * 1000) / Math.max(1, p.responseMs));
+      if (re) {
+        // the bias wanders and the reading is noisy; both are re-drawn once per 10 ms IMU sample
+        this.gyroBias += re.walkDegPerSqrtS * D2R * Math.sqrt(ms / 1000) * re.rng.randn();
+        this.gyroNoise = re.noiseRad * re.rng.randn();
+      }
       for (let i = 0; i < SUBSTEPS; i++) {
         this.vL += ((this.cmdL / 127) * this.vmax - this.vL) * alpha;
         this.vR += ((this.cmdR / 127) * this.vmax - this.vR) * alpha;
-        const v = (this.vL + this.vR) / 2;
-        const w = (this.vL - this.vR) / p.trackWidth; // rad/s, clockwise positive
-        const hm = this.h + (w * dt) / 2;
-        this.x += Math.sin(hm) * v * dt;
-        this.y += Math.cos(hm) * v * dt;
-        this.h += w * dt;
+        if (!re) {
+          const v = (this.vL + this.vR) / 2;
+          const w = (this.vL - this.vR) / p.trackWidth; // rad/s, clockwise positive
+          const hm = this.h + (w * dt) / 2;
+          this.x += Math.sin(hm) * v * dt;
+          this.y += Math.cos(hm) * v * dt;
+          this.h += w * dt;
+          this.collideWalls();
+          this.sx = this.x;
+          this.sy = this.y;
+          this.sh = this.h;
+          continue;
+        }
+
+        // --- wheel slip. The wheels follow the motors; the ground only follows the wheels as far as
+        // friction allows (wheelspin when accelerating too hard, a skid when braking too hard).
+        const lim = re.longLim * dt;
+        this.uL += clamp(this.vL - this.uL, -lim, lim);
+        this.uR += clamp(this.vR - this.uR, -lim, lim);
+        const u = (this.uL + this.uR) / 2;
+        // turning scrubs the wheels sideways, so the robot turns a bit less than the wheels say
+        const w = (this.uL - this.uR) / (p.trackWidth * re.scrub);
+        const dh = w * dt;
+        if (re.latOn) {
+          // a turning robot wants to keep going straight: that shows up as sideways speed in its own
+          // frame, which the tyres remove as long as the sideways force stays under the friction limit
+          this.bv -= u * dh;
+          const maxCut = re.latLim * dt;
+          this.bv -= clamp(this.bv * (1 - Math.exp(-dt / LAT_TAU)), -maxCut, maxCut);
+          if (Math.abs(this.bv) > this.maxSlide) this.maxSlide = Math.abs(this.bv);
+        } else this.bv = 0;
+        this.slipDist += Math.abs((this.vL + this.vR) / 2 - u) * dt;
+        const hm = this.h + dh / 2;
+        this.x += (Math.sin(hm) * u + Math.cos(hm) * this.bv) * dt;
+        this.y += (Math.cos(hm) * u - Math.sin(hm) * this.bv) * dt;
+        this.h += dh;
         this.collideWalls();
+
+        // --- sensors: the gyro sees the real rotation (scale error + drift + noise), the encoders see
+        // how far the wheels turned, not how far the robot moved
+        this.gyro += (w * (1 + re.scale) + this.gyroBias) * dt;
+        const shNew = this.gyro + this.gyroNoise + this.shOff;
+        const dF = ((this.vL + this.vR) / 2) * dt;
+        const shm = (this.sh + shNew) / 2;
+        this.sx += Math.sin(shm) * dF;
+        this.sy += Math.cos(shm) * dF;
+        this.sh = shNew;
       }
     }
     collideWalls() {
@@ -271,13 +411,14 @@
    *   robot           {wheelDiameter, rpm, speedPct, trackWidth, length, width, responseMs}
    *   start           {x, y, h}  field pose
    *   cfg             {lateral, angular, trackWidth, horizontalDrift, pathMode}
+   *   realism         optional {enabled, seed, gyroDrift, gyroScale, gyroNoise, grip, gripVar, latGrip, scrub}
    *   paths           [{ids:[...], name, points:[{x,y,v}] (inches, file frame)}]
    *   maxMs           hard stop for the simulation
    *   onProgress(ms)  optional
    */
   async function runSimulation(o) {
     const clock = new Clock();
-    const robot = new Robot(o.robot, o.start);
+    const robot = new Robot(o.robot, o.start, o.realism);
     const events = [];
     const motions = [];
     const log = (kind, text) => events.push({ t: clock.now, kind, text });
@@ -337,7 +478,7 @@
           // paths drawn in the editor live on the field, so "code frame" does not apply to them
           const mode = p.forceField && chassis.pathMode === 'code' ? 'field' : chassis.pathMode;
           let shift = { x: 0, y: 0 };
-          if (mode === 'relative') shift = { x: robot.x - src[0].x, y: robot.y - src[0].y };
+          if (mode === 'relative') shift = { x: robot.sx - src[0].x, y: robot.sy - src[0].y };
           const pts = src.map((q) => {
             const v = toCmd(q.v);
             if (mode === 'code') return { x: q.x, y: q.y, v };
@@ -364,7 +505,7 @@
     }
 
     // recorded trajectory (one entry per tick, parallel arrays)
-    const F = { t: [], x: [], y: [], h: [], vl: [], vr: [], mi: [], ax: [], ay: [], hit: [], cx: [], cy: [], ct: [] };
+    const F = { t: [], x: [], y: [], h: [], vl: [], vr: [], mi: [], ax: [], ay: [], hit: [], cx: [], cy: [], ct: [], ox: [], oy: [], oh: [] };
     const record = () => {
       F.t.push(clock.now);
       F.x.push(robot.x);
@@ -386,6 +527,10 @@
       F.cx.push(cp.x);
       F.cy.push(cp.y);
       F.ct.push(cp.theta);
+      // where the odometry thinks the robot is, on the field (equal to x / y / h for an ideal robot)
+      F.ox.push(robot.sx);
+      F.oy.push(robot.sy);
+      F.oh.push(robot.sh * R2D);
     };
 
     let codeDone = false;
@@ -419,11 +564,36 @@
       }
     }
     if (!error) log('info', `Auton code finished at ${(clock.now / 1000).toFixed(2)} s`);
+    const stats = robot.real ? realStats(robot, F) : null;
+    if (stats) {
+      log('info', `Real-life error (seed ${robot.real.seed}): odometry ends ${stats.endPosErr.toFixed(1)} in and ${stats.endHeadErr.toFixed(1)}\u00b0 off the real robot (worst ${stats.maxPosErr.toFixed(1)} in, ${stats.maxHeadErr.toFixed(1)}\u00b0).`);
+      log('info', `  gyro: ${(robot.real.biasDegPerS * 60).toFixed(2)}\u00b0/min drift, ${(robot.real.scale * 100).toFixed(2)}% turn-rate error.  wheels: ${stats.slipDist.toFixed(1)} in of slip, fastest sideways slide ${stats.maxSlide.toFixed(1)} in/s, grip x${robot.real.gripMul.toFixed(2)}.`);
+    }
     const missing = Array.from(scope.__unknownCalls || []).filter((n) => !/^(printf|print|lcd|puts)$/.test(n));
     if (missing.length) log('info', `Not defined in your code, so skipped: ${missing.map((n) => n + '()').join(', ')}. If one moves the robot, paste its definition too.`);
 
-    return { frames: F, events, motions, durationMs: clock.now, error, vmax: robot.vmax };
+    return { frames: F, events, motions, durationMs: clock.now, error, vmax: robot.vmax, realism: stats };
   }
 
-  Object.assign(NS, { runSimulation, Robot, Clock });
+  /** how far the odometry ended up from the real robot, for the run log */
+  function realStats(robot, F) {
+    const wrap = (d) => ((((d + 180) % 360) + 360) % 360) - 180;
+    let maxPos = 0;
+    let maxHead = 0;
+    for (let i = 0; i < F.t.length; i++) {
+      maxPos = Math.max(maxPos, Math.hypot(F.ox[i] - F.x[i], F.oy[i] - F.y[i]));
+      maxHead = Math.max(maxHead, Math.abs(wrap(F.oh[i] - F.h[i])));
+    }
+    const n = F.t.length - 1;
+    return {
+      endPosErr: Math.hypot(F.ox[n] - F.x[n], F.oy[n] - F.y[n]),
+      endHeadErr: Math.abs(wrap(F.oh[n] - F.h[n])),
+      maxPosErr: maxPos,
+      maxHeadErr: maxHead,
+      slipDist: robot.slipDist,
+      maxSlide: robot.maxSlide,
+    };
+  }
+
+  Object.assign(NS, { runSimulation, Robot, Clock, REAL_DEFAULTS });
 })();
