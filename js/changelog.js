@@ -115,6 +115,10 @@
           "name": "Changed",
           "items": [
             {
+              "text": "**New app icon.** A 3x3 field-tile grid with a violet route through it, part of the Rack Suite VEX icon family (Recon uses the same grid with a turquoise viewfinder). Replaces the duotone icon; the favicon and every icon size are rendered from `assets/icon/icon.svg`.",
+              "sub": []
+            },
+            {
               "text": "**Wider layout.** The field takes the left column at the largest size that fits the screen and the settings get all the rest, in columns that pack with no empty gaps, instead of a narrow strip. The wheel dropdowns sit in one row of four.",
               "sub": []
             },
@@ -175,6 +179,10 @@
         {
           "name": "Removed",
           "items": [
+            {
+              "text": "The last of the drawn field: its 24 unused colour tokens. Only the background behind the field photo is left.",
+              "sub": []
+            },
             {
               "text": "The \"drawn\" field picture. Only the match and skills pictures remain (a saved \"drawn\" setting becomes match).",
               "sub": []

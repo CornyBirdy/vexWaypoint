@@ -179,30 +179,6 @@
   --ov-ghost-fill: rgba(255, 255, 255, 0.1);
   --ov-ghost-edge: rgba(255, 255, 255, 0.9);
 
-  /* field art */
+  /* behind the field photo, and while it loads */
   --art-bg: #1a1b1e;
-  --art-wall: #dcdddf;
-  --art-wall-edge: #8f9092;
-  --art-tile-a: #373739;
-  --art-tile-b: #343436;
-  --art-seam: #2b2b2d;
-  --art-tape: #bcc1dd;
-  --art-red: #c9283d;
-  --art-blue: #2a9ad8;
-  --art-yellow: #e8dc63;
-  --art-pin-yellow: #e9d95f;
-  --art-pin-red: #d02a40;
-  --art-pin-blue: #2f9fe3;
-  --art-cup-white: #ffffff;
-  --art-cup-gray: #5b5c61;
-  --art-ink: #0d0d0e;
-  --art-goal-black: #1b1b1d;
-  --art-goal-red: #b92337;
-  --art-goal-blue: #2589c4;
-  --art-goal-rim: #2a2a2d;
-  --art-goal-hub: #e3d56a;
-  --art-goal-hole: #16090b;
-  --art-mount: #0b0b0c;
-  --art-shade: rgba(0, 0, 0, 0.45);
-  --art-shade-soft: rgba(0, 0, 0, 0.35);
 }

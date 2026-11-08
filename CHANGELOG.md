@@ -103,6 +103,9 @@ grouped by date.
   have seen the newest entries).
 
 ### Changed
+- **New app icon.** A 3x3 field-tile grid with a violet route through it, part of the Rack Suite VEX icon family
+  (Recon uses the same grid with a turquoise viewfinder). Replaces the duotone icon; the favicon and every icon
+  size are rendered from `assets/icon/icon.svg`.
 - **Wider layout.** The field takes the left column at the largest size that fits the screen and the settings get all
   the rest, in columns that pack with no empty gaps, instead of a narrow strip. The wheel dropdowns sit in one row of four.
 - **Aligner sketch grid lines up with the drivetrain's edge.** The grid is anchored on the edge you are drawing
@@ -140,6 +143,7 @@ grouped by date.
   solid when asked for or while aligners are on (the tickbox is greyed out and says why).
 
 ### Removed
+- The last of the drawn field: its 24 unused colour tokens. Only the background behind the field photo is left.
 - The "drawn" field picture. Only the match and skills pictures remain (a saved "drawn" setting becomes match).
 
 ### Fixed
