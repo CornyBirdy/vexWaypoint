@@ -1,16 +1,19 @@
-/* The Waypoint wordmark: Rack Suite VEX lettering (monoline on a 24-unit grid, 10° lean) with a waypoint node
-   for the O. It is inline SVG in index.html (header and splash), so it follows the theme and works when
+/* The Waypoint wordmark: Rack Suite VEX lettering (monoline on a 24-unit grid, 10° lean). The O is the app icon's
+   mark: faint 3x3 field tiles with the violet route across them. It is inline SVG in index.html (header and splash), so it follows the theme and works when
    index.html is opened straight from a folder. Letters take the text colour; the O takes the accent. */
 .brand { margin: 0; line-height: 0; color: var(--ink); flex: none; }
 .wm { height: 18px; width: auto; overflow: visible; }
 .wm .wm-o { stroke: var(--accent); }
 .wm .wm-dot { fill: var(--accent); stroke: none; }
+.wm .wm-tile { fill: currentColor; stroke: none; opacity: 0.18; }
+.wm .wm-start { fill: var(--surface); } /* hollow start ring over the tiles */
 
 /* start-up splash: the wordmark, a route that draws itself in, the tagline. Always on the dark splash background. */
 .splash-art { width: min(640px, 88vw); display: flex; flex-direction: column; align-items: center; gap: var(--s-6); color: var(--splash-ink); }
 .splash .splash-wm { width: 100%; height: auto; }
 .splash .wm-o { stroke: var(--splash-accent); }
 .splash .wm-dot { fill: var(--splash-accent); }
+.splash .wm-start { fill: var(--splash-bg); }
 .splash-route { width: 94%; overflow: visible; }
 .splash-route .route { fill: none; stroke: var(--splash-accent); stroke-width: 4; stroke-linecap: round; filter: drop-shadow(0 0 6px var(--splash-glow));
   stroke-dasharray: 1; stroke-dashoffset: 1; animation: wp-draw 0.9s 0.15s cubic-bezier(0.2, 0.7, 0.2, 1) forwards; }
