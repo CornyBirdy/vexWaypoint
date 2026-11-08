@@ -150,6 +150,30 @@
     return seg;
   }
 
+  /**
+   * Where a robot should stand to drive this path: its first point, facing the way the path
+   * leaves it (compass degrees, 0 = up, clockwise). `backwards` faces the other way, for
+   * paths that are driven in reverse. Null for a path with no segments.
+   */
+  function startPose(path, backwards) {
+    if (!path || !path.segments.length) return null;
+    const c = path.segments[0].controls;
+    const p0 = c[0];
+    let h = 0;
+    for (let i = 1; i < c.length; i++) {
+      const dx = c[i].x - p0.x;
+      const dy = c[i].y - p0.y;
+      if (Math.hypot(dx, dy) > 1e-6) {
+        h = (Math.atan2(dx, dy) * 180) / Math.PI;
+        break;
+      }
+    }
+    if (backwards) h += 180;
+    h = ((h % 360) + 360) % 360;
+    if (h > 180) h -= 360; // -180..180, like the start pose box
+    return { x: Math.round(p0.x * 10) / 10, y: Math.round(p0.y * 10) / 10, h: Math.round(h * 10) / 10 };
+  }
+
   function splitSegment(path, seg, pt) {
     const index = path.segments.indexOf(seg);
     if (index < 0) return null;
@@ -360,7 +384,7 @@
     Editor: {
       makeUid, clone, defaultPc, defaultGc, endControl, control, makeSegment, newPath, relink, controlsOf,
       first, last, isCubic, bezier, nearestOnPath,
-      addSegment, splitSegment, convertSegment, removeEndControl, dragControl,
+      addSegment, startPose, splitSegment, convertSegment, removeEndControl, dragControl,
       addKeyframe, findKeyframe, moveKeyframe, removeKeyframe,
       Project, importPaths,
     },

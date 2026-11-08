@@ -28,6 +28,11 @@
 <header class="bar">
   <h1 class="brand"><svg class="wm" viewBox="0 0 176.7 26" role="img" aria-label="Waypoint"><g transform="translate(4.58 0) skewX(-10)" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"><path transform="translate(1.80 0)" d="M0 2l5 22L12 7l7 17 5-22"/><path transform="translate(31.80 0)" d="M0 24L8.5 2 17 24"/><path transform="translate(54.80 0)" d="M0 2l8 11.5L16 2M8 13.5V24"/><path transform="translate(76.80 0)" d="M0 24V2h8.5a6 6 0 0 1 0 12H0"/><path transform="translate(97.30 0)" d="M10.5 2a10.5 11 0 1 1-.01 0z"/><path transform="translate(124.30 0)" d="M1.5 2v22"/><path transform="translate(133.30 0)" d="M0 24V2l15 22V2"/><path transform="translate(154.30 0)" d="M0 2h16M8 2v22"/></g><circle class="wm-dot" cx="42.70" cy="16.9" r="2.6"/></svg></h1>
   <span class="grow"></span>
+  <div class="seg" role="group" aria-label="What the preview runs">
+    <span class="seglabel">Preview</span>
+    <button id="pvPath" class="btn on" type="button" aria-pressed="true" title="Draw a path and watch the robot drive it">Path</button>
+    <button id="pvCode" class="btn" type="button" aria-pressed="false" title="Run your autonomous() code">Code</button>
+  </div>
   <label class="check"><input type="checkbox" id="autoRun" checked> re-run on change</label>
   <button id="btnChangelog" class="btn" type="button" title="What changed in each update">Changelog<span class="dot" id="changelogDot" hidden></span></button>
   <button id="btnTheme" class="btn" type="button" title="Colour theme: Auto follows your system" aria-label="Colour theme">Theme: Auto</button>
@@ -110,11 +115,12 @@
       <button class="tab" type="button" role="tab" data-tab="all">Everything</button>
     </nav>
     <div class="panes" id="panes">
-    <details class="sec" data-tab="setup" open>
+    <details class="sec" id="secStart" data-tab="setup" open hidden>
       <summary>Start pose</summary>
       <div class="props" id="formStart"></div>
       <label class="check realtoggle"><input type="checkbox" id="startFromCode"> take the start pose from <code>setPose()</code> in the code</label>
       <p class="note" id="startNote" hidden>Your code's <code>setPose()</code> placed the robot here (field coordinates, heading 0&deg; = up the field), so these numbers follow the code.</p>
+      <div class="actions"><button id="btnStartAtPath" class="btn" type="button" title="Move the start pose to the first point of the selected path">Start at selected path</button></div>
       <p class="note">Code 0, 0, 0 is this pose. +y is the robot's forward, +x its right. Drag the dashed robot on the field to move it, the handle to turn it.</p>
     </details>
 
@@ -175,9 +181,9 @@
       <div class="actions">
         <button id="btnNewPath" class="btn" type="button" title="Start a new path and switch to the edit tool">New path</button>
         <select id="exportFmt" aria-label="Export format">
-          <option value="project">jerry.io project (.jerryio)</option>
-          <option value="lemlib04">LemLib v0.4 (.txt), selected path</option>
-          <option value="lemlib1">LemLib v1.0 (.bin)</option>
+          <option value="project">All paths: jerry.io project (.jerryio)</option>
+          <option value="lemlib04">Selected path: LemLib v0.4 (.txt)</option>
+          <option value="lemlib1">All paths: LemLib v1.0 (.bin)</option>
         </select>
         <button id="btnExport" class="btn" type="button">Export</button>
       </div>
@@ -187,8 +193,25 @@
       <p class="note" id="pathModeNote"></p>
     </details>
 
-    <details class="sec" id="pathProps" data-tab="paths" open hidden>
-      <summary>Selected path</summary>
+    <details class="sec" id="secExport" data-tab="paths" open>
+      <summary>Use on the robot</summary>
+      <div class="props">
+        <label class="field"><span>Lookahead (in)</span><input id="fLook" type="number" step="1" min="1" max="60" inputmode="decimal"></label>
+        <label class="field"><span>Timeout (ms)</span><input id="fTimeout" type="number" step="100" min="100" max="60000" inputmode="numeric"></label>
+        <label class="check"><input type="checkbox" id="fBack"> drive the path backwards</label>
+      </div>
+      <p class="note status" id="genInfo"></p>
+      <textarea id="genCode" readonly spellcheck="false" aria-label="Generated LemLib code"></textarea>
+      <div class="actions export">
+        <button id="btnDownloadPath" class="btn primary" type="button">Download path</button>
+        <button id="btnCopyCode" class="btn" type="button">Copy code</button>
+        <button id="btnInsert" class="btn" type="button" title="Put these lines into the Code box and run them there">Add to my code</button>
+      </div>
+      <p class="note" id="genSteps">Put the downloaded file in your PROS project's <code>static/</code> folder, then paste the code above. The preview runs exactly these lines.</p>
+    </details>
+
+    <details class="sec" id="pathProps" data-tab="paths" hidden>
+      <summary>Tune selected path <span class="aside">speeds</span></summary>
       <div class="props">
         <label class="field"><span>Name</span><input id="pName" type="text" maxlength="40"></label>
         <label class="field"><span>Min speed</span><input id="pFrom" type="number" step="1" min="0" max="255"></label>
@@ -201,7 +224,7 @@
       <p class="note">Speeds use LemLib v0.4 units (0-127). Slower where the path bends more, and never faster than the robot could stop from.</p>
     </details>
 
-    <details class="sec" data-tab="code" open>
+    <details class="sec" id="secCode" data-tab="code" open hidden>
       <summary>Code</summary>
       <div class="props">
         <label class="field"><span>Language</span>
@@ -309,6 +332,7 @@
 <script src="js/translate.js"></script>
 <script src="js/editor.js"></script>
 <script src="js/export.js"></script>
+<script src="js/codegen.js"></script>
 <script src="js/chassis.js"></script>
 <script src="js/motors.js"></script>
 <script src="js/aligners.js"></script>
