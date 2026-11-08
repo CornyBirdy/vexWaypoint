@@ -667,6 +667,16 @@
       this.robot.cmdL = clamp(l, -127, 127);
       this.robot.cmdR = clamp(r, -127, 127);
     }
+    /**
+     * Open-loop driving from user code: chassis.tank() / arcade() / curvature() and motor group move()
+     * calls. The command stays until the next one. While a LemLib motion is running it owns the motors
+     * (it rewrites them every tick), so a call made then is dropped, as it would fight the motion.
+     */
+    openLoop(l, r) {
+      if (this.motion) return;
+      if (l != null) this.robot.cmdL = clamp(l, -127, 127);
+      if (r != null) this.robot.cmdR = clamp(r, -127, 127);
+    }
 
     // ----- scheduler hooks
     /** called once per tick, after user code has had its turn */

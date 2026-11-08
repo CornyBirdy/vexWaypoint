@@ -487,7 +487,12 @@
       if (!f) {
         f = new Proxy(function () {}, {
           get: (_t, k) => (k === 'then' ? undefined : k === Symbol.toPrimitive ? () => 0 : NOOP),
-          apply: () => {
+          apply: (_t, _this, args) => {
+            // say so where it happens: a helper that moves the robot but is not pasted makes the run look wrong
+            if (!unknownCalls.has(name) && !/^(printf|print|lcd|puts)$/.test(name)) {
+              const shown = args.map((a) => (typeof a === 'number' ? +a.toFixed(2) : typeof a === 'string' ? JSON.stringify(a) : '...')).join(', ');
+              log('warn', `${name}(${shown}) is not defined in your code, so it was skipped (the robot does not move for it)`);
+            }
             unknownCalls.add(name);
             return NOOP;
           },
@@ -500,6 +505,7 @@
     const warnedLoops = new Set();
     const stuckMs = opts && opts.mechanismWaitMs != null ? opts.mechanismWaitMs : 0;
     const def = (v, d) => (v === undefined || v === null ? d : v);
+    const num = (v) => (isFinite(Number(v)) ? Number(v) : 0);
     let poseDeclared = false;
     // LemLib's docs: "don't attempt to turn the chassis to points within 10 inches of the chassis"
     const nearPoint = (name, x, y) => {
@@ -559,10 +565,15 @@
       cancelMotion: () => ch.cancelMotion(),
       cancelAllMotions: () => ch.cancelAllMotions(),
       isInMotion: () => ch.isInMotion(),
-      // drivetrain-only sim: manual driving calls do nothing
-      tank: () => {},
-      arcade: () => {},
-      curvature: () => {},
+      // open loop driving (what a helper like backUp() or driveToGoal() usually does): -127..127 per side
+      tank: (l, r) => ch.openLoop(num(l), num(r)),
+      arcade: (throttle, turn) => ch.openLoop(num(throttle) + num(turn), num(throttle) - num(turn)),
+      curvature: (throttle, turn) => {
+        // LemLib's curvature drive turns the robot in proportion to its speed; close enough: steer by the same ratio
+        const t = num(throttle);
+        const k = num(turn) / 127;
+        ch.openLoop(t * (1 + k), t * (1 - k));
+      },
     };
     // motion calls numbered by the translator (`moveToPoint__S3`) know which call in the code they are: the
     // auto-tuner can swap that call's timeout (opts.siteTimeouts) or every timeout (opts.timeoutOverride)
@@ -644,6 +655,24 @@
     };
     chassisNames.forEach((n) => (scope[n] = chassisObj));
     Object.keys(pathLib).forEach((id) => (scope[id] = pathLib[id]));
+    // the drivetrain's motor groups (`leftMotors.move(-60)`): open-loop commands, like chassis.tank()
+    const groups = (opts && opts.motorGroups) || null;
+    if (groups) {
+      const cart = (opts && opts.cartridge) || 600; // rpm of the cartridge, for move_velocity()
+      const mg = (side) => {
+        const set = (v) => ch.openLoop(side === 'left' ? num(v) : null, side === 'right' ? num(v) : null);
+        const obj = {
+          move: set, // -127..127
+          move_voltage: (mv) => set((num(mv) / 12000) * 127),
+          move_velocity: (rpm) => set((num(rpm) / cart) * 127),
+          brake: () => set(0),
+          stop: () => set(0),
+        };
+        return new Proxy(obj, { get: (t, k) => (k in t ? t[k] : k === 'then' ? undefined : NOOP) });
+      };
+      if (groups.left) scope[groups.left] = mg('left');
+      if (groups.right) scope[groups.right] = mg('right');
+    }
 
     scope.__unknownCalls = unknownCalls;
     return new Proxy(scope, {
@@ -765,6 +794,8 @@
     let placed = null;
     const scope = buildScope(ch, clock, lib, names, log, {
       mechanismWaitMs: o.mechanismWaitMs,
+      motorGroups: o.motorGroups,
+      cartridge: o.robot && o.robot.motor ? o.robot.motor.cartridge : 600,
       siteTimeouts: o.siteTimeouts,
       timeoutOverride: o.timeoutOverride,
       // setPose() at the start of the code places the robot there (field coordinates, compass heading)

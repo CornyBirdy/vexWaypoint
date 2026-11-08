@@ -458,6 +458,7 @@
         endIdx: p.endIdx,
       })).concat(V.PathTool.runPaths()),
       chassisNames: ['chassis', c.config.chassisName],
+      motorGroups: c.config.motorGroups || null,
       mechanismWaitMs: S.cfg.mechanismWait,
       maxMs: 120000,
     };

@@ -24,6 +24,7 @@ async function run(code, { start = { x: 0, y: 0, h: 0 }, paths = [], language = 
     cfg: cfg(cfgExtra),
     paths,
     chassisNames: ['chassis', c.config.chassisName],
+    motorGroups: c.config.motorGroups || null,
     maxMs: 120000,
     realism,
     startFromSetPose,
@@ -328,6 +329,39 @@ const angDiff = (a, b) => Math.abs(normDeg(a - b));
     const slow = await V.runSimulation({ js: V.compileAuton(skills, { language: 'cpp' }).js, robot: ROBOT, start: { x: 0, y: 0, h: 0 }, cfg: cfg(), paths: [], chassisNames: ['chassis'], mechanismWaitMs: 1500, maxMs: 300000 });
     assert(slow.durationMs > t.end.t + 5000, 'a longer mechanism wait lengthens the run');
     console.log('ok bare skills paste with lift waits finishes in', t.end.t, 'ms');
+  }
+
+  // --- open-loop driving in a helper (chassis.tank, motor group move) moves the robot; an undefined helper is
+  //     reported where it is called, with its arguments
+  {
+    const code = `
+      pros::MotorGroup leftMotors({-5, -6}, pros::MotorGearset::blue);
+      pros::MotorGroup rightMotors({8, 9}, pros::MotorGearset::blue);
+      lemlib::Drivetrain drivetrain(&leftMotors, &rightMotors, 10.5, lemlib::Omniwheel::NEW_325, 450, 2);
+      void backUp(float s) { chassis.tank(-60, -60); pros::delay(s * 1000); chassis.tank(0, 0); }
+      void push() { leftMotors.move(80); rightMotors.move(80); pros::delay(500); leftMotors.move(0); rightMotors.move(0); }
+      void spin() { leftMotors.move(60); rightMotors.move(-60); pros::delay(400); chassis.arcade(0, 0); }
+      void autonomous() {
+        chassis.setPose(0, 0, 0);
+        backUp(0.5);
+        const lowY = 0;
+        push();
+        spin();
+        mysteryHelper(3, "x");
+      }`;
+    t = await run(code);
+    assert.deepStrictEqual(t.c.config.motorGroups, { left: 'leftMotors', right: 'rightMotors' });
+    const f = t.res.frames;
+    const minY = Math.min(...f.y);
+    assert(minY < -8, 'backUp() drove the robot backwards: ' + minY);
+    assert(t.end.y > minY + 12, 'then push() drove it forwards: ' + t.end.y + ' vs ' + minY);
+    assert(angDiff(t.end.h, 0) > 20, 'spin() turned it: ' + t.end.h);
+    assert(t.end.t > 1300 && t.end.t < 2500, 'the delays are real time: ' + t.end.t);
+    assert(t.res.events.some((e) => e.kind === 'warn' && /mysteryHelper\(3, "x"\) is not defined/.test(e.text)), 'undefined helper reported with its arguments');
+    // while a LemLib motion runs it owns the motors: a tank() made then is ignored
+    t = await run(`void autonomous(){ chassis.setPose(0,0,0); chassis.moveToPoint(0, 24, 3000); chassis.tank(-127, -127); chassis.waitUntilDone(); }`);
+    near(t.end.y, 24, 1.5, 'a tank() during a motion does not fight it');
+    console.log('ok open-loop drive (tank / arcade / motor groups)');
   }
 
   // --- parse errors point at the translated line

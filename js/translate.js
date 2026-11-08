@@ -240,6 +240,12 @@
         rpm: numArg(a[4]),
         horizontalDrift: numArg(a[5]),
       };
+      // `Drivetrain dt(&leftMotors, &rightMotors, ...)`: the names the code uses for the two sides, so
+      // `leftMotors.move(-60)` in a helper drives the simulated robot
+      const grp = (x) => (x || '').replace(/^[\s&*]+/, '').trim();
+      const l = grp(a[0]);
+      const r = grp(a[1]);
+      if (/^[A-Za-z_]\w*$/.test(l) && /^[A-Za-z_]\w*$/.test(r)) cfg.motorGroups = { left: l, right: r };
     }
     // odometry setup: tracking wheels (offset from the tracking centre) and which of them / the IMU go into OdomSensors
     const wheels = {};

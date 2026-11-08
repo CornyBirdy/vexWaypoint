@@ -7,6 +7,8 @@ grouped by date.
 ## Unreleased
 
 ### Added
+- **Open-loop driving is simulated.** Helpers that drive the motors directly (a `backUp()` that does `chassis.tank(-60, -60); pros::delay(500);`, a `driveToGoal()` that pushes into a goal) used to do nothing in the sim, so an auton built from them looked nothing like the real robot. `chassis.tank()`, `arcade()`, `curvature()` and the drivetrain's motor groups (`leftMotors.move()`, `move_voltage()`, `move_velocity()`, `brake()`, named from your `lemlib::Drivetrain` line) now move the robot until the next command, and `pros::delay()` makes them last. A LemLib motion that is running keeps the motors, so a `tank()` during it is ignored.
+- A function that is not in your paste is now reported in the run log **where it is called** (with its arguments), not only in the summary at the end, so you can see which steps the robot skipped.
 - **Path-first flow: draw, watch, export.** A **Preview: Path / Code** switch at the top says what the field runs.
   *Path* (the default) runs just the selected path, so a drawn path can be watched with no code. The first click of
   a new path sets where it starts, the robot stands there facing the way the path leaves, and it drives the path
