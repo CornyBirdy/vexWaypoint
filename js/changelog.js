@@ -10,6 +10,10 @@
           "name": "Added",
           "items": [
             {
+              "text": "**Path-first flow: draw, watch, export.** A **Preview: Path / Code** switch at the top says what the field runs. *Path* (the default) runs just the selected path, so a drawn path can be watched with no code. The first click of a new path sets where it starts, the robot stands there facing the way the path leaves, and it drives the path when you stop drawing. A new **Use on the robot** panel (Paths tab) has lookahead, timeout and drive-backwards, says how long the path takes or that it would time out, and shows the code the preview runs (`ASSET(Path_txt)`, `chassis.setPose(...)`, `chassis.follow(...)`). **Download Path.txt** saves the file named so PROS's `ASSET()` finds it, **Copy code** copies the snippet and **Add to my code** puts it into your own `autonomous()` and runs it there. In *Code* mode, **Start at selected path** moves the start pose to the path's first point and heading. A path's file-based name (`Path_txt`) now always works in the sim.",
+              "sub": []
+            },
+            {
               "text": "**Mix 11 W and 5.5 W motors.** *Motors per side* is now two boxes, *11 W motors per side* and *5.5 W motors per side*, so a 55 W drive (two 11 W + one 5.5 W a side, 27.5 W) works. The motors are geared to give the wheel RPM when unloaded, and the 5.5 W motor has its own figures (0.5 N m stall at about 200 rpm), so it comes out at about 48% of an 11 W motor, not exactly half; the readout says so. The current figures for both are under *Motor current figures*. Settings saved with the old single motor type carry over.",
               "sub": []
             },
