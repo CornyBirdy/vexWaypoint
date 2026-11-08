@@ -405,7 +405,8 @@
     const fmt = args[0];
     if (typeof fmt !== 'string' || !/%/.test(fmt)) return args.join(' ');
     let i = 1;
-    return fmt.replace(/%(-?\d*)(?:\.(\d+))?(?:l|ll|h|z)?([dioufFeEgGsc%])/g, (all, width, prec, conv) => {
+    // %[flags][width][.precision][length]conversion, e.g. %+.2f  %05.1f  %-6d  %lu
+    return fmt.replace(/%([-+ 0#]*)(\d*)(?:\.(\d+))?(?:ll|l|h|z)?([dioufFeEgGsc%])/g, (all, flags, width, prec, conv) => {
       if (conv === '%') return '%';
       const v = args[i++];
       let out;
@@ -413,7 +414,18 @@
       else if (conv === 'd' || conv === 'i' || conv === 'u' || conv === 'o') out = String(Math.trunc(Number(v)));
       else if (/[fF]/.test(conv)) out = Number(v).toFixed(prec === undefined ? 6 : +prec);
       else out = String(Number(v));
-      return width ? out.padStart(Math.abs(+width)) : out;
+      if (/[dioufFeEgG]/.test(conv) && Number(v) >= 0) {
+        if (flags.includes('+')) out = '+' + out;
+        else if (flags.includes(' ')) out = ' ' + out;
+      }
+      if (!width) return out;
+      const w = +width;
+      if (flags.includes('-')) return out.padEnd(w);
+      if (flags.includes('0') && /[dioufFeEgG]/.test(conv)) {
+        const sign = /^[-+ ]/.test(out) ? out[0] : '';
+        return sign + out.slice(sign.length).padStart(w - sign.length, '0');
+      }
+      return out.padStart(w);
     });
   }
 
@@ -639,6 +651,7 @@
       printf: (...a) => log('print', formatPrintf(a)),
       ...lemUtils,
       Timer: (ms) => makeTimer(clock, ms),
+      Task: () => NOOP, // pros::Task([]() {...}): the lambda body is skipped (it runs the lift / claw)
       PID: makePid,
       M_PI: Math.PI,
       degToRad: (d) => d * D2R,

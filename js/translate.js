@@ -163,6 +163,11 @@
     return -1;
   }
 
+  /** apply `fn` to the parts of `s` that are not inside "..." or '...' (a "%.2f" must keep its f) */
+  function outsideStrings(s, fn) {
+    return s.replace(/("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*')|([^"']+|["'])/g, (all, str, code) => (str ? str : fn(code)));
+  }
+
   function splitTopLevel(s) {
     const out = [];
     let depth = 0;
@@ -379,6 +384,79 @@
 
   const TEMPLATES = '(?:vector|array|map|unordered_map|set|function|unique_ptr|shared_ptr|pair|tuple|optional|deque)';
 
+  // plain-data structs of the file being compiled: name -> [{name, def}] in declaration order
+  let STRUCTS = {};
+
+  /** `{a: 1, b: 2}` for a struct value built from a C++ brace list (positional, or designated `.b = 2`); gaps get the defaults */
+  function structObject(name, items) {
+    const st = STRUCTS[name];
+    const vals = {};
+    items.forEach((it, i) => {
+      const d = /^\.\s*([A-Za-z_]\w*)\s*=(?!=)\s*([\s\S]*)$/.exec(it);
+      if (d) vals[d[1]] = d[2];
+      else if (st[i]) vals[st[i].name] = it;
+    });
+    return '{' + st.map((f) => f.name + ': ' + (vals[f.name] != null ? vals[f.name] : f.def)).join(', ') + '}';
+  }
+
+  /**
+   * `struct Goal { float x; float y; };` (data only: a struct with methods or a destructor is left alone) is
+   * removed from the code and remembered, so `Goal g = {24, 15.5};` and `g = {1, 2};` can become objects.
+   * @returns {string} JS for any variable declared right after the closing brace
+   */
+  function takeStructs(clean) {
+    STRUCTS = {};
+    let out = '';
+    let pre = '';
+    let i = 0;
+    const re = /\bstruct\s+([A-Za-z_]\w*)\s*\{/g;
+    let m;
+    while ((m = re.exec(clean))) {
+      const open = m.index + m[0].length - 1;
+      const close = matchBracket(clean, open);
+      if (close < 0) break;
+      const body = clean.slice(open + 1, close);
+      if (/[()]/.test(body)) {
+        re.lastIndex = close + 1;
+        continue;
+      }
+      const fields = [];
+      body.split(';').forEach((mem) => {
+        const t = /^(?:(?:const|static|mutable|unsigned|signed|volatile|inline)\s+)*[A-Za-z_][\w:]*(?:<[^>]*>)?[&*]*\s+([\s\S]+)$/.exec(mem.trim());
+        if (!t) return;
+        splitTopLevel(t[1]).forEach((d) => {
+          const dm = /^([A-Za-z_]\w*)\s*(?:=\s*([\s\S]+))?$/.exec(d.trim());
+          if (dm) fields.push({ name: dm[1], def: dm[2] != null ? translateExpr(dm[2]) : '0' });
+        });
+      });
+      const tail = /^\s*([A-Za-z_]\w*)?\s*;/.exec(clean.slice(close + 1));
+      if (!fields.length || !tail) {
+        re.lastIndex = close + 1;
+        continue;
+      }
+      STRUCTS[m[1]] = fields;
+      if (tail[1]) pre += `let ${tail[1]} = ${structObject(m[1], [])};\n`;
+      out += clean.slice(i, m.index);
+      i = close + 1 + tail[0].length;
+      re.lastIndex = i;
+    }
+    return { clean: out + clean.slice(i), prelude: pre };
+  }
+
+  /** `v = {1, 2}` / `Goal v = {1, 2}` for a variable of a known struct type -> `v = {x: 1, y: 2}` */
+  function structInitialisers(clean) {
+    const names = Object.keys(STRUCTS);
+    if (!names.length) return clean;
+    const reVar = new RegExp('\\b(' + names.join('|') + ')\\s*[&*]*\\s+([A-Za-z_]\\w*)\\b', 'g');
+    const vars = new Map();
+    let m;
+    while ((m = reVar.exec(clean))) if (!KEYWORDS.has(m[2])) vars.set(m[2], m[1]);
+    vars.forEach((type, v) => {
+      clean = clean.replace(new RegExp('\\b' + v + '\\s*=\\s*\\{([^{}]*)\\}', 'g'), (all, inner) => v + ' = ' + structObject(type, splitTopLevel(inner)));
+    });
+    return clean;
+  }
+
   function translateBody(body, chassisNames, helperNames) {
     let s = stripLambdas(body);
     s = s.replace(/->/g, '.');
@@ -396,9 +474,12 @@
     s = s.replace(/([(,]\s*)\{(\s*[^\s{}:][^{}:]*)\}/g, '$1[$2]');
     // C++-only syntax
     s = s.replace(/\b(?:static|reinterpret|const|dynamic)_cast\s*<[^>]*>/g, '');
-    s = s.replace(/\(\s*(?:unsigned\s+)?(?:int|float|double|bool|long|short|size_t)\s*\)/g, '');
-    s = s.replace(/\b(\d+\.?\d*|\.\d+)[fF]\b/g, '$1');
-    s = s.replace(/\b(\d+)[uUlL]+\b/g, '$1');
+    s = outsideStrings(s, (c) =>
+      c
+        .replace(/\(\s*(?:(?:unsigned|signed|const)\s+)*(?:int|float|double|bool|long|short|char|size_t|u?int(?:8|16|32|64)_t)\s*\)/g, '')
+        .replace(/\b(\d+\.?\d*|\.\d+)[fF]\b/g, '$1')
+        .replace(/\b(\d+)[uUlL]+\b/g, '$1')
+    );
     s = s.replace(/\bnullptr\b|\bNULL\b/g, 'null');
 
     // std containers: `vector<Pose> stops = {...}` -> `let stops = [...]`
@@ -425,6 +506,7 @@
       prev = s;
       s = s.replace(/(^|[;{}\n])(\s*)([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*(=(?!=)|;)/g, (all, pre, ws, type, name, tail) => {
         if (KEYWORDS.has(type)) return all;
+        if (tail === ';' && STRUCTS[type]) return `${pre}${ws}let ${name} = ${structObject(type, [])};`;
         return `${pre}${ws}let ${name} ${tail === ';' ? '= NOOP;' : '='}`;
       });
     }
@@ -460,14 +542,15 @@
 
   /** a single expression / initialiser from a declaration */
   function translateExpr(e) {
-    return e
-      .replace(/\b(?:\w+::)*(?:DriveSide|AngularDirection)::(\w+)/g, '"$1"')
-      .replace(/\b(?:lemlib|pros|std|okapi|vex)::(?:c::)?/g, '')
-      .replace(/\b[A-Za-z_]\w*::([A-Za-z_]\w*)/g, '$1')
-      .replace(/\b(\d+\.?\d*|\.\d+)[fF]\b/g, '$1')
-      .replace(/\b(\d+)[uUlL]+\b/g, '$1')
-      .replace(/\bnullptr\b|\bNULL\b/g, 'null')
-      .trim();
+    return outsideStrings(e, (c) =>
+      c
+        .replace(/\b(?:\w+::)*(?:DriveSide|AngularDirection)::(\w+)/g, '"$1"')
+        .replace(/\b(?:lemlib|pros|std|okapi|vex)::(?:c::)?/g, '')
+        .replace(/\b[A-Za-z_]\w*::([A-Za-z_]\w*)/g, '$1')
+        .replace(/\b(\d+\.?\d*|\.\d+)[fF]\b/g, '$1')
+        .replace(/\b(\d+)[uUlL]+\b/g, '$1')
+        .replace(/\bnullptr\b|\bNULL\b/g, 'null')
+    ).trim();
   }
 
   let AsyncFunctionCtor = null;
@@ -531,6 +614,10 @@
       return '';
     });
 
+    const taken = takeStructs(clean);
+    clean = structInitialisers(taken.clean);
+    prelude += taken.prelude;
+
     const funcs = findFunctions(clean);
 
     // everything outside the functions is "globals"
@@ -544,6 +631,12 @@
       if (KEYWORDS.has(m[1]) || m[1] === 'ASSET') continue;
       prelude += `let ${m[2]} = ${translateExpr(m[3])};\n`;
     }
+
+    // global variables of a struct type: `inline constexpr Goal GOAL_A = {24, 15.55};`, `ResetDebug last;`
+    Object.keys(STRUCTS).forEach((S) => {
+      const reS = new RegExp('(?:^|[;}\\n])\\s*(?:(?:inline|constexpr|const|static)\\s+)*' + S + '\\s+([A-Za-z_]\\w*)\\s*(?:=\\s*(\\{[^{}]*\\}))?\\s*;', 'g');
+      while ((m = reS.exec(globals))) prelude += `let ${m[1]} = ${translateExpr(m[2] || structObject(S, []))};\n`;
+    });
 
     const names = Array.from(new Set(['chassis', config.chassisName]));
     const candidates = funcs.filter((f) => (f.params === '' || f.params === 'void') && !NOT_AUTON.has(f.name));

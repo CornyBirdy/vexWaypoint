@@ -8,6 +8,7 @@ grouped by date.
 
 ### Added
 - **Open-loop driving is simulated.** Helpers that drive the motors directly (a `backUp()` that does `chassis.tank(-60, -60); pros::delay(500);`, a `driveToGoal()` that pushes into a goal) used to do nothing in the sim, so an auton built from them looked nothing like the real robot. `chassis.tank()`, `arcade()`, `curvature()` and the drivetrain's motor groups (`leftMotors.move()`, `move_voltage()`, `move_velocity()`, `brake()`, named from your `lemlib::Drivetrain` line) now move the robot until the next command, and `pros::delay()` makes them last. A LemLib motion that is running keeps the motors, so a `tank()` during it is ignored.
+- **Helpers that use structs and casts now run.** A goal-reset header like `goal_reset.hpp` (`struct Goal { float x; float y; }`, `inline constexpr Goal GOAL = {30.0f, 20.0f};`, `lastReset = {true, x, y, ...};`) is understood, so `resetAtGoalA()` re-anchors the robot on the goal as it does on the real one instead of throwing. Plain-data structs, brace lists for them (positional or `.name = value`), `(uint32_t)` / `(int8_t)` style casts, and `pros::Task(...)` (skipped, not reported as a missing function) are supported. Before, `lowerUntilStall()` and `waitForLift()` failed to translate because of a `(uint32_t)` cast.
 - A function that is not in your paste is now reported in the run log **where it is called** (with its arguments), not only in the summary at the end, so you can see which steps the robot skipped.
 - **Path-first flow: draw, watch, export.** A **Preview: Path / Code** switch at the top says what the field runs.
   *Path* (the default) runs just the selected path, so a drawn path can be watched with no code. The first click of
@@ -163,6 +164,7 @@ grouped by date.
 - The "drawn" field picture. Only the match and skills pictures remain (a saved "drawn" setting becomes match).
 
 ### Fixed
+- `printf("%.2f")` lost its `f` (the translator treated it like the `2.0f` number suffix), so the number was never filled in. Text in quotes is now left alone, and `printf` handles flags and widths (`%+.2f`, `%05.1f`, `%-6d`).
 - The `lemlib::Omniwheel` diameters were wrong (`OLD_4` is 4.18 in, the `_HALF` sizes differ slightly,
   `NEW_2` was missing); they now match the LemLib docs.
 - Two declarations on one line (`lemlib::Pose a(0, 0, 0); lemlib::Pose b(1, 1, 0);`) failed to parse.

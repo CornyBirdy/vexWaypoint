@@ -364,6 +364,50 @@ const angDiff = (a, b) => Math.abs(normDeg(a - b));
     console.log('ok open-loop drive (tank / arcade / motor groups)');
   }
 
+  // --- an auton built on helper functions (a split-speed drive, backing off with the motor groups, a reset
+  //     header with structs / constexpr / casts, pros::Task): everything translates and the helpers move the robot
+  {
+    const full = require('fs').readFileSync(path.join(__dirname, 'fixtures', 'helpers_auton.cpp'), 'utf8');
+    t = await run(full, { start: { x: 0, y: 0, h: 0 } });
+    const ev = t.res.events;
+    assert.deepStrictEqual(t.c.warnings, [], 'every helper translates: ' + t.c.warnings);
+    assert.deepStrictEqual(t.c.ignored, []);
+    assert.deepStrictEqual(t.c.config.motorGroups, { left: 'leftMotors', right: 'rightMotors' });
+    assert(!ev.some((e) => e.kind === 'error'), 'no errors: ' + ev.filter((e) => e.kind === 'error').map((e) => e.text));
+    assert(!ev.some((e) => /is not defined in your code/.test(e.text)), 'nothing is skipped: ' + ev.filter((e) => /not defined/.test(e.text)).map((e) => e.text));
+    assert(ev.some((e) => /Auton code finished/.test(e.text)), 'it finishes');
+    // the split drive = two moveToPoint calls to the same point
+    const labels = t.res.motions.map((m) => m.label);
+    const i = labels.indexOf('moveToPoint(30, 20, 2000)');
+    assert(i >= 0 && labels[i + 1] === 'moveToPoint(30, 20, 2000)', 'the split drive runs its two moves: ' + labels);
+    // the reset puts the robot `STANDOFF` (7 in) back from TARGET (30, 20) along its heading, printed with %.2f
+    const rs = ev.find((e) => e.kind === 'print' && /^reset: before \(-?\d+\.\d\d, -?\d+\.\d\d\) after/.test(e.text));
+    assert(rs, 'reset line is formatted: ' + ev.filter((e) => e.kind === 'print').map((e) => e.text));
+    const th = (Number(/heading (-?[\d.]+)/.exec(rs.text)[1]) * Math.PI) / 180;
+    const after = /after \((-?[\d.]+), (-?[\d.]+)\)/.exec(rs.text);
+    near(Number(after[1]), 30 - 7 * Math.sin(th), 0.02, 'reset x = target x - R sin(heading)');
+    near(Number(after[2]), 20 - 7 * Math.cos(th), 0.02, 'reset y = target y - R cos(heading)');
+    // backOff() drove the motors backwards (the robot was moving towards the target before it)
+    const f = t.res.frames;
+    const k = f.t.findIndex((tt) => tt >= t.res.events.find((e) => e.kind === 'print').t);
+    assert(f.t.length > k + 20, 'there is motion after the reset');
+    console.log('ok helper functions (split drive, backOff, reset with structs) run end to end');
+  }
+
+  // --- structs, integer casts and printf formats
+  {
+    t = await run(`
+      struct P { float x; float y = 5; bool on = true; };
+      const P HOME = {1.5f, 2.5f};
+      P last;
+      void note(const P& p) { last = {p.x + 1, p.y + 1, false}; printf("%+.2f %05.1f %-4d| %s %u", last.x, last.y, 7, "ok", (uint32_t)3); }
+      void autonomous() { P q = {.y = 9}; uint32_t a = (uint32_t)q.y; note(HOME); printf("%d %d", a, last.on); }`);
+    assert.deepStrictEqual(t.c.warnings, []);
+    const prints = t.res.events.filter((e) => e.kind === 'print').map((e) => e.text);
+    assert.deepStrictEqual(prints, ['+2.50 003.5 7   | ok 3', '9 0'], prints.join(' / '));
+    console.log('ok structs, casts, printf flags');
+  }
+
   // --- parse errors point at the translated line
   t = await run(`void autonomous(){ chassis.moveToPoint(0, 10, 1000); int = ; }`);
   assert(t.res.events.some((e) => e.kind === 'error' && /Could not parse/.test(e.text)), 'syntax error reported');

@@ -14,6 +14,10 @@
               "sub": []
             },
             {
+              "text": "**Helpers that use structs and casts now run.** A goal-reset header like `goal_reset.hpp` (`struct Goal { float x; float y; }`, `inline constexpr Goal GOAL = {30.0f, 20.0f};`, `lastReset = {true, x, y, ...};`) is understood, so `resetAtGoalA()` re-anchors the robot on the goal as it does on the real one instead of throwing. Plain-data structs, brace lists for them (positional or `.name = value`), `(uint32_t)` / `(int8_t)` style casts, and `pros::Task(...)` (skipped, not reported as a missing function) are supported. Before, `lowerUntilStall()` and `waitForLift()` failed to translate because of a `(uint32_t)` cast.",
+              "sub": []
+            },
+            {
               "text": "A function that is not in your paste is now reported in the run log **where it is called** (with its arguments), not only in the summary at the end, so you can see which steps the robot skipped.",
               "sub": []
             },
@@ -208,6 +212,10 @@
         {
           "name": "Fixed",
           "items": [
+            {
+              "text": "`printf(\"%.2f\")` lost its `f` (the translator treated it like the `2.0f` number suffix), so the number was never filled in. Text in quotes is now left alone, and `printf` handles flags and widths (`%+.2f`, `%05.1f`, `%-6d`).",
+              "sub": []
+            },
             {
               "text": "The `lemlib::Omniwheel` diameters were wrong (`OLD_4` is 4.18 in, the `_HALF` sizes differ slightly, `NEW_2` was missing); they now match the LemLib docs.",
               "sub": []
