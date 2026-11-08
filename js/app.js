@@ -17,6 +17,8 @@
     routine: '',
     autonLimit: 15,
     fieldStyle: 'photo-match',
+    preview: 'path', // what the field runs: 'path' (the selected path, generated code) or 'code' (your autonomous())
+    follow: { lookahead: 15, timeout: 4000, backwards: false },
   };
   const clone = (o) => JSON.parse(JSON.stringify(o));
   let S = clone(DEFAULTS);
@@ -119,6 +121,9 @@
     $('lang').value = S.lang;
     $('autonLimit').value = String(S.autonLimit);
     $('fieldStyle').value = S.fieldStyle;
+    $('fLook').value = S.follow.lookahead;
+    $('fTimeout').value = S.follow.timeout;
+    $('fBack').checked = !!S.follow.backwards;
     updateTopSpeed();
   }
 
@@ -267,6 +272,102 @@
 
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+  // ------------------------------------------------------------------ path preview + code for the robot
+
+  const pathPreview = () => S.preview === 'path';
+
+  /** the selected path with the code generated for it, or null when there is nothing to run */
+  function previewRun() {
+    const info = V.PathTool.info();
+    if (!info || !info.path.segments.length) return null;
+    const f = S.follow;
+    const opts = { lookahead: f.lookahead, timeout: f.timeout, backwards: f.backwards };
+    const pose = V.Editor.startPose(info.path, f.backwards);
+    return { info, pose, opts, code: V.CodeGen.autonomous(pose, info.assetId, info.fileName, opts) };
+  }
+
+  /** where the robot stands: the path's start while previewing a path, else the start pose box (null: no robot yet) */
+  function activeStart() {
+    if (!pathPreview()) return S.start;
+    const info = V.PathTool.info();
+    const pose = info && V.Editor.startPose(info.path, S.follow.backwards);
+    if (pose) return pose;
+    const pend = V.PathTool.pendingStart();
+    return pend ? { x: pend.x, y: pend.y, h: 0 } : null;
+  }
+
+  function updateExport() {
+    const pv = previewRun();
+    const code = $('genCode');
+    const info = $('genInfo');
+    ['btnDownloadPath', 'btnCopyCode', 'btnInsert', 'btnStartAtPath'].forEach((id) => ($(id).disabled = !pv));
+    if (!pv) {
+      code.value = '// Draw a path on the field and its LemLib code appears here.';
+      $('btnDownloadPath').textContent = 'Download path';
+      info.textContent = '';
+      return;
+    }
+    code.value = pv.code.replace(/\n+$/, '');
+    $('btnDownloadPath').textContent = `Download ${pv.info.fileName}`;
+    const m = pathPreview() && result && result.motions && result.motions[0];
+    if (m && m.follow && m.t1 != null) {
+      const sec = (m.t1 - m.t0) / 1000;
+      info.className = 'note status ' + (m.reason === 'timeout' ? 'bad' : 'good');
+      info.textContent =
+        m.reason === 'timeout'
+          ? `Timed out after ${S.follow.timeout} ms before reaching the end. Raise the timeout.`
+          : `Takes ${sec.toFixed(1)} s in the sim (timeout ${(S.follow.timeout / 1000).toFixed(1)} s).`;
+    } else {
+      info.className = 'note status';
+      info.textContent = '';
+    }
+  }
+
+  function flash(btn, text) {
+    const old = btn.dataset.label || btn.textContent;
+    btn.dataset.label = old;
+    btn.textContent = text;
+    clearTimeout(btn._t);
+    btn._t = setTimeout(() => {
+      btn.textContent = old;
+      delete btn.dataset.label;
+      updateExport();
+    }, 1400);
+  }
+
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      const ta = $('genCode');
+      ta.focus();
+      ta.select();
+      try {
+        return document.execCommand('copy');
+      } catch (err) {
+        return false;
+      }
+    }
+  }
+
+  function setPreview(mode, opts) {
+    S.preview = mode;
+    const path = mode === 'path';
+    $('pvPath').classList.toggle('on', path);
+    $('pvCode').classList.toggle('on', !path);
+    $('pvPath').setAttribute('aria-pressed', String(path));
+    $('pvCode').setAttribute('aria-pressed', String(!path));
+    $('secStart').hidden = path;
+    $('secCode').hidden = path;
+    $('toolPose').hidden = path;
+    document.body.dataset.preview = mode;
+    if (path) V.PathTool.setTool('edit');
+    save();
+    requestDraw();
+    if (!opts || !opts.quiet) runNow({ autoplay: true });
+  }
+
   // ------------------------------------------------------------------ running
 
   let result = null;
@@ -282,6 +383,9 @@
 
   function currentCompiled() {
     compiled = V.compileAuton($('code').value, { language: S.lang, routine: S.routine });
+    return syncRoutines(compiled);
+  }
+  function syncRoutines(compiled) {
     const wrap = $('routineWrap');
     const sel = $('routine');
     sel.innerHTML = '';
@@ -300,10 +404,27 @@
     running = true;
     $('btnRun').classList.add('busy');
     try {
-      const c = currentCompiled();
+      const pv = pathPreview() ? previewRun() : null;
+      if (pathPreview() && !pv) {
+        // nothing to run yet
+        result = null;
+        trail = [];
+        $('log').innerHTML = '';
+        addLog('info', 'Draw a path: click the field where it should start, then where it should go. It runs here as you draw.');
+        $('scrub').max = '0';
+        simMs = 0;
+        playing = false;
+        syncPlayButton();
+        updateLimitBadge();
+        updateExport();
+        requestDraw();
+        return;
+      }
+      const c = pv ? V.compileAuton(pv.code, { language: 'cpp' }) : currentCompiled();
       const logLines = [];
+      if (pv) logLines.push(['info', `Previewing ${pv.info.assetId}: the generated code from "Use on the robot"`]);
       c.warnings.forEach((w) => logLines.push(['warn', w]));
-      if (S.lang === 'cpp' && c.routine) logLines.push(['info', `Running ${c.routine}()` + (c.ignored.length ? `  (ignored: ${c.ignored.join(', ')})` : '')]);
+      if (!pv && S.lang === 'cpp' && c.routine) logLines.push(['info', `Running ${c.routine}()` + (c.ignored.length ? `  (ignored: ${c.ignored.join(', ')})` : '')]);
       const editorIds = V.PathTool.ids();
       const missing = c.config.assets.filter((a) => !paths.some((p) => p.id === a || p.aliases.includes(a)) && !editorIds.includes(a));
       missing.forEach((a) => logLines.push(['warn', `ASSET(${a}): no matching path file loaded`]));
@@ -311,8 +432,8 @@
       const res = await V.runSimulation({
         js: c.js,
         robot: S.robot,
-        start: S.start,
-        cfg: { lateral: S.lateral, angular: S.angular, trackWidth: S.robot.trackWidth, horizontalDrift: S.cfg.horizontalDrift, pathMode: S.cfg.pathMode },
+        start: pv ? pv.pose : S.start,
+        cfg: { lateral: S.lateral, angular: S.angular, trackWidth: S.robot.trackWidth, horizontalDrift: S.cfg.horizontalDrift, pathMode: pv ? 'field' : S.cfg.pathMode },
         paths: paths.map((p) => ({
           ids: [p.id, ...p.aliases],
           name: p.id,
@@ -339,6 +460,7 @@
       lastTs = 0;
       updateLimitBadge();
       syncPlayButton();
+      updateExport();
       requestDraw();
       save();
     } finally {
@@ -354,11 +476,13 @@
   let debounce = 0;
   function settingsChanged() {
     updateTopSpeed();
+    updateExport();
     save();
     requestDraw();
     if (!$('autoRun').checked) return;
     clearTimeout(debounce);
-    debounce = setTimeout(() => runNow({ autoplay: false }), 220);
+    // while you draw, wait until you stop for a moment, then show the robot driving the path
+    debounce = setTimeout(() => runNow({ autoplay: pathPreview() }), pathPreview() ? 450 : 220);
   }
 
   // ------------------------------------------------------------------ log
@@ -472,13 +596,14 @@
     const f = result && result.frames;
     const idx = f ? Math.min(f.t.length - 1, Math.max(0, Math.round(simMs / 10))) : 0;
     const dims = { length: S.robot.length, width: S.robot.width };
+    const st = activeStart();
     const state = {
       robot: dims,
-      ghost: { x: S.start.x, y: S.start.y, h: S.start.h },
-      ghostHandle: true,
+      ghost: st && { x: st.x, y: st.y, h: st.h },
+      ghostHandle: !pathPreview(),
       paths: $('optPaths').checked ? previewPaths() : null,
       edit: $('optPaths').checked || V.PathTool.tool() === 'edit' ? V.PathTool.drawState() : null,
-      codeAxes: $('optAxes').checked ? { x: S.start.x, y: S.start.y, h: S.start.h } : null,
+      codeAxes: $('optAxes').checked && st ? { x: st.x, y: st.y, h: st.h } : null,
     };
     if (f) {
       state.pose = { x: f.x[idx], y: f.y[idx], h: f.h[idx] };
@@ -489,7 +614,7 @@
       if ($('optAim').checked && isFinite(f.ax[idx])) state.aim = { x: f.ax[idx], y: f.ay[idx] };
       updateHud(f, idx, mi);
     } else {
-      state.pose = { x: S.start.x, y: S.start.y, h: S.start.h };
+      state.pose = st ? { x: st.x, y: st.y, h: st.h } : null;
       updateHud(null, 0, -1);
     }
     renderer.draw(state);
@@ -501,7 +626,8 @@
   function updateHud(f, idx, mi) {
     if (!f) {
       $('tTime').textContent = '0.00';
-      $('tField').textContent = `${S.start.x.toFixed(1)}, ${S.start.y.toFixed(1)}  ${S.start.h.toFixed(0)}°`;
+      const st = activeStart();
+      $('tField').textContent = st ? `${st.x.toFixed(1)}, ${st.y.toFixed(1)}  ${st.h.toFixed(0)}°` : '-';
       $('tCode').textContent = '0.0, 0.0  0°';
       $('tSpeed').textContent = '-';
       $('tMotion').textContent = '-';
@@ -656,6 +782,9 @@
       requestDraw,
       changed: () => settingsChanged(),
       getStart: () => S.start,
+      pathPreview,
+      hint: (t) => ($('cursor').textContent = t),
+      selected: () => pathPreview() && runNow({ autoplay: true }),
       log: addLog,
       topSpeedMps: () => ((S.robot.rpm / 60) * Math.PI * S.robot.wheelDiameter * (S.robot.speedPct / 100)) / 39.3701,
     });
@@ -669,9 +798,64 @@
     renderer.setFieldStyle(S.fieldStyle);
     rebuildPaths();
     pushSettingsToUi();
+    setPreview(S.preview === 'code' ? 'code' : 'path', { quiet: true });
 
     $('btnRun').addEventListener('click', () => runNow({ autoplay: true }));
+    $('pvPath').addEventListener('click', () => setPreview('path'));
+    $('pvCode').addEventListener('click', () => setPreview('code'));
+    const follow = (id, key, conv) =>
+      $(id).addEventListener('input', () => {
+        const v = conv($(id));
+        if (v == null || !isFinite(v)) return;
+        S.follow[key] = v;
+        settingsChanged();
+      });
+    follow('fLook', 'lookahead', (el) => parseFloat(el.value));
+    follow('fTimeout', 'timeout', (el) => parseFloat(el.value));
+    $('fBack').addEventListener('change', (e) => {
+      S.follow.backwards = e.target.checked;
+      settingsChanged();
+    });
+    $('btnDownloadPath').addEventListener('click', () => {
+      try {
+        const info = V.PathTool.downloadPath();
+        addLog('info', `Saved ${info.fileName}. Put it in your PROS project's static/ folder.`);
+        flash($('btnDownloadPath'), 'Saved');
+      } catch (err) {
+        addLog('warn', 'Export failed: ' + err.message);
+      }
+    });
+    $('btnCopyCode').addEventListener('click', async () => {
+      flash($('btnCopyCode'), (await copyText($('genCode').value)) ? 'Copied' : 'Select + Ctrl+C');
+    });
+    $('btnInsert').addEventListener('click', () => {
+      const pv = previewRun();
+      if (!pv) return;
+      const res = V.CodeGen.insertIntoCode($('code').value, {
+        language: S.lang,
+        assetId: pv.info.assetId,
+        fileName: pv.info.fileName,
+        pose: pv.pose,
+        ...pv.opts,
+      });
+      $('code').value = res.code;
+      // the robot has to stand where the new setPose says it does
+      if (res.notes.some((n) => /setPose/.test(n))) S.start = { x: pv.pose.x, y: pv.pose.y, h: pv.pose.h };
+      pushSettingsToUi();
+      setPreview('code', { quiet: true });
+      addLog('info', 'Added to your code: ' + res.notes.join(', '));
+      flash($('btnInsert'), 'Added');
+      runNow({ autoplay: true });
+    });
+    $('btnStartAtPath').addEventListener('click', () => {
+      const pv = previewRun();
+      if (!pv) return;
+      S.start = { x: pv.pose.x, y: pv.pose.y, h: pv.pose.h };
+      pushSettingsToUi();
+      settingsChanged();
+    });
     $('btnExample').addEventListener('click', () => {
+      setPreview('code', { quiet: true });
       $('code').value = V.EXAMPLES.code;
       pathFiles = [];
       V.PathTool.clear();
@@ -682,7 +866,7 @@
       runNow({ autoplay: true });
     });
     $('btnReset').addEventListener('click', () => {
-      const keep = { lang: S.lang };
+      const keep = { lang: S.lang, preview: S.preview };
       S = merge(clone(DEFAULTS), keep);
       pushSettingsToUi();
       settingsChanged();

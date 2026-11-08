@@ -22,6 +22,7 @@
   let selCtrl = null;
   let selKf = null;
   let drag = null;
+  let pending = null; // first click of a new path (path preview): where it starts
   let version = 0;
   const cache = new Map();
 
@@ -78,7 +79,14 @@
     project.paths.forEach((p) => p.origin && (fileCount[p.origin] = (fileCount[p.origin] || 0) + 1));
     const seen = {};
     project.paths.forEach((p) => {
+      // the name ASSET() gives the exported file (Path_1.txt -> Path_1_txt) always works too, so
+      // the code you copy out of the sim is the code that runs in it
       const list = [];
+      const own = PT.info(p).assetId;
+      if (!used.has(own)) {
+        used.add(own);
+        list.push(own);
+      }
       if (p.origin) {
         const fileId = NS.idFromName(p.origin);
         const base = NS.idFromName(p.origin.replace(/\.[^.]*$/, ''));
@@ -98,6 +106,15 @@
   PT.ids = () => {
     const al = aliasesMap();
     return Array.from(idsMap().values()).concat(...Array.from(al.values()));
+  };
+
+  /** code names + file name of a path, for the code you paste into the robot project */
+  PT.info = (path) => {
+    path = path || project.getPath(selPath);
+    if (!path) return null;
+    const id = idsMap().get(path.uid);
+    const fileName = id + '.txt';
+    return { path, id, fileName, assetId: NS.idFromName(fileName) };
   };
 
   const colorOf = (path) => NS.theme.series(project.paths.indexOf(path));
@@ -167,6 +184,7 @@
 
   PT.drawState = () => ({
     selCtrl,
+    pending,
     paths: project.paths.map((p) => ({
       visible: p.visible,
       selected: p.uid === selPath && tool === 'edit',
@@ -193,14 +211,19 @@
   };
 
   function select(pathUid, ctrlUid) {
+    const switched = pathUid !== selPath;
     selPath = pathUid;
     selCtrl = ctrlUid || null;
     selKf = null;
+    if (switched) pending = null;
     renderList();
     renderProps();
     drawGraph();
     H.requestDraw();
+    if (switched && H.selected) H.selected();
   }
+  PT.select = (uid) => select(uid, null);
+  PT.pendingStart = () => pending;
 
   // ------------------------------------------------------------------ field interaction
 
@@ -309,6 +332,17 @@
     }
     // blank field: Curve / Line from the last point (or from the robot for a new path)
     const at = clampField(d.w);
+    let target = project.getPath(selPath);
+    if (!target || target.lock || !target.visible) target = null;
+    // path preview: the robot start pose is not a thing here, so the first click of a new path
+    // is where the path starts; the second click picks Curve / Line
+    const freshPath = !target || !target.segments.length;
+    if (H.pathPreview && H.pathPreview() && freshPath && !pending) {
+      pending = { x: Math.round(at.x * 10) / 10, y: Math.round(at.y * 10) / 10 };
+      H.requestDraw();
+      H.hint && H.hint('Start point set. Click where the path should go next.');
+      return true;
+    }
     const add = (cubic) => () => {
       project.checkpoint();
       let p = project.getPath(selPath);
@@ -316,7 +350,8 @@
         p = project.addPath('Path');
         selPath = p.uid;
       }
-      const s = H.getStart();
+      const s = pending ? { x: pending.x, y: pending.y } : H.getStart();
+      pending = null;
       E.addSegment(p, Math.round(at.x * 10) / 10, Math.round(at.y * 10) / 10, cubic, { x: s.x, y: s.y, heading: s.h });
       selCtrl = null;
       touch();
@@ -436,17 +471,15 @@
     const ul = $('projList');
     if (!ul) return;
     ul.innerHTML = '';
-    const map = idsMap();
-    const aliases = aliasesMap();
     project.paths.forEach((p) => {
       const li = document.createElement('li');
       li.className = 'path' + (p.uid === selPath ? ' sel' : '');
-      const id = map.get(p.uid);
+      const id = PT.info(p).assetId;
       li.innerHTML = `
         <span class="sw" style="background:${colorOf(p)}"></span>
         <span class="nm"><b title="${esc(p.name)}">${esc(p.name)}</b>
           <button class="id" type="button" title="Click to copy the name to use in chassis.follow()">${esc(id)}</button>
-          <span class="meta">${p.segments.length} seg &middot; ${pathLength(p).toFixed(0)} in${aliases.get(p.uid).length ? ' &middot; also ' + esc(aliases.get(p.uid).join(', ')) : ''}</span></span>
+          <span class="meta">${p.segments.length} seg &middot; ${pathLength(p).toFixed(0)} in</span></span>
         <button class="mini ${p.lock ? 'on' : ''}" type="button" title="Lock (no editing)" data-act="lock">${p.lock ? 'locked' : 'lock'}</button>
         <input type="checkbox" ${p.visible ? 'checked' : ''} title="Show on field" aria-label="Show ${esc(p.name)}">
         <button class="x" type="button" title="Delete path" aria-label="Delete ${esc(p.name)}">&times;</button>`;
@@ -456,7 +489,7 @@
       });
       li.querySelector('.id').addEventListener('click', () => {
         if (navigator.clipboard) navigator.clipboard.writeText(id).catch(() => {});
-        $('cursor').textContent = `chassis.follow(${id}, 15, 4000);`;
+        H.hint(`Copied ${id}`);
         select(p.uid, null);
       });
       li.querySelector('[data-act=lock]').addEventListener('click', () => {
@@ -544,6 +577,7 @@
       project.checkpoint();
       const p = project.addPath('Path');
       selPath = p.uid;
+      pending = null;
       PT.setTool('edit');
       touch();
       renderList();
@@ -573,16 +607,25 @@
     }, 500);
   }
 
+  /** download the LemLib v0.4 .txt for a path, named so PROS's ASSET() can find it */
+  PT.downloadPath = (path) => {
+    const info = PT.info(path);
+    if (!info) throw new Error('No path to export');
+    download(info.fileName, NS.Export.exportLemlib04(project, info.path), 'text/plain');
+    return info;
+  };
+
   function doExport() {
     const fmt = $('exportFmt').value;
-    const p = project.getPath(selPath) || project.paths[0];
     try {
-      if (fmt === 'project') download('paths.jerryio', NS.Export.exportProject(project), 'application/json');
-      else if (fmt === 'lemlib04') {
-        if (!p) throw new Error('No path to export');
-        download(NS.idFromName(p.name) + '.txt', NS.Export.exportLemlib04(project, p), 'text/plain');
-      } else download('paths.bin', NS.Export.exportLemlib1(project, project.paths, H.topSpeedMps()));
-      H.log('info', 'Exported ' + (fmt === 'project' ? 'paths.jerryio' : fmt === 'lemlib04' ? NS.idFromName(p.name) + '.txt' : 'paths.bin'));
+      if (fmt === 'project') {
+        download('paths.jerryio', NS.Export.exportProject(project), 'application/json');
+        H.log('info', 'Exported paths.jerryio');
+      } else if (fmt === 'lemlib04') H.log('info', 'Exported ' + PT.downloadPath(project.getPath(selPath) || project.paths[0]).fileName);
+      else {
+        download('paths.bin', NS.Export.exportLemlib1(project, project.paths, H.topSpeedMps()));
+        H.log('info', 'Exported paths.bin');
+      }
     } catch (err) {
       H.log('warn', 'Export failed: ' + err.message);
     }

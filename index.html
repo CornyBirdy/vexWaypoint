@@ -18,6 +18,11 @@
 <header class="bar">
   <h1>Waypoint</h1>
   <span class="grow"></span>
+  <div class="seg" role="group" aria-label="What the preview runs">
+    <span class="seglabel">Preview</span>
+    <button id="pvPath" class="btn on" type="button" aria-pressed="true" title="Draw a path and watch the robot drive it">Path</button>
+    <button id="pvCode" class="btn" type="button" aria-pressed="false" title="Run your autonomous() code">Code</button>
+  </div>
   <label class="check"><input type="checkbox" id="autoRun" checked> re-run on change</label>
   <button id="btnTheme" class="btn" type="button" title="Colour theme: Auto follows your system" aria-label="Colour theme">Theme: Auto</button>
   <button id="btnExample" class="btn" type="button">Load example</button>
@@ -84,17 +89,6 @@
 
   <aside class="panel">
     <details class="sec" open>
-      <summary>Start pose</summary>
-      <div class="props" id="formStart"></div>
-      <p class="note">Code 0, 0, 0 is this pose. +y is the robot's forward, +x its right. Drag the dashed robot on the field to move it, the handle to turn it.</p>
-    </details>
-
-    <details class="sec" open>
-      <summary>Drivetrain <span class="aside" id="topSpeed"></span></summary>
-      <div class="props" id="formDrive"></div>
-    </details>
-
-    <details class="sec" open>
       <summary>Paths</summary>
       <div class="dropzone" id="drop">
         <input type="file" id="fileInput" multiple>
@@ -105,9 +99,9 @@
       <div class="actions">
         <button id="btnNewPath" class="btn" type="button" title="Start a new path and switch to the edit tool">New path</button>
         <select id="exportFmt" aria-label="Export format">
-          <option value="project">jerry.io project (.jerryio)</option>
-          <option value="lemlib04">LemLib v0.4 (.txt), selected path</option>
-          <option value="lemlib1">LemLib v1.0 (.bin)</option>
+          <option value="project">All paths: jerry.io project (.jerryio)</option>
+          <option value="lemlib04">Selected path: LemLib v0.4 (.txt)</option>
+          <option value="lemlib1">All paths: LemLib v1.0 (.bin)</option>
         </select>
         <button id="btnExport" class="btn" type="button">Export</button>
       </div>
@@ -116,9 +110,24 @@
       </div>
       <p class="note" id="pathModeNote"></p>
     </details>
-
-    <details class="sec" id="pathProps" open hidden>
-      <summary>Selected path</summary>
+    <details class="sec" id="secExport" open>
+      <summary>Use on the robot</summary>
+      <div class="props">
+        <label class="field"><span>Lookahead (in)</span><input id="fLook" type="number" step="1" min="1" max="60" inputmode="decimal"></label>
+        <label class="field"><span>Timeout (ms)</span><input id="fTimeout" type="number" step="100" min="100" max="60000" inputmode="numeric"></label>
+        <label class="check"><input type="checkbox" id="fBack"> drive the path backwards</label>
+      </div>
+      <p class="note status" id="genInfo"></p>
+      <textarea id="genCode" readonly spellcheck="false" aria-label="Generated LemLib code"></textarea>
+      <div class="actions export">
+        <button id="btnDownloadPath" class="btn primary" type="button">Download path</button>
+        <button id="btnCopyCode" class="btn" type="button">Copy code</button>
+        <button id="btnInsert" class="btn" type="button" title="Put these lines into the Code box and run them there">Add to my code</button>
+      </div>
+      <p class="note" id="genSteps">Put the downloaded file in your PROS project's <code>static/</code> folder, then paste the code above. The preview runs exactly these lines.</p>
+    </details>
+    <details class="sec" id="pathProps" hidden>
+      <summary>Tune selected path <span class="aside">speeds</span></summary>
       <div class="props">
         <label class="field"><span>Name</span><input id="pName" type="text" maxlength="40"></label>
         <label class="field"><span>Min speed</span><input id="pFrom" type="number" step="1" min="0" max="255"></label>
@@ -130,8 +139,13 @@
       </div>
       <p class="note">Speeds use LemLib v0.4 units (0-127). Slower where the path bends more, and never faster than the robot could stop from.</p>
     </details>
-
-    <details class="sec" open>
+    <details class="sec" id="secStart" open hidden>
+      <summary>Start pose</summary>
+      <div class="props" id="formStart"></div>
+      <div class="actions"><button id="btnStartAtPath" class="btn" type="button" title="Move the start pose to the first point of the selected path">Start at selected path</button></div>
+      <p class="note">Code 0, 0, 0 is this pose. +y is the robot's forward, +x its right. Drag the dashed robot on the field to move it, the handle to turn it.</p>
+    </details>
+    <details class="sec" id="secCode" open hidden>
       <summary>Code</summary>
       <div class="props">
         <label class="field"><span>Language</span>
@@ -148,7 +162,10 @@
       </div>
       <p class="note">Drivetrain only. Calls on other objects (intake, lift, clamp...) are ignored.</p>
     </details>
-
+    <details class="sec" open>
+      <summary>Drivetrain <span class="aside" id="topSpeed"></span></summary>
+      <div class="props" id="formDrive"></div>
+    </details>
     <details class="sec">
       <summary>LemLib controllers</summary>
       <h3>Lateral</h3><div class="props" id="formLat"></div>
@@ -172,6 +189,7 @@
 <script src="js/translate.js"></script>
 <script src="js/editor.js"></script>
 <script src="js/export.js"></script>
+<script src="js/codegen.js"></script>
 <script src="js/sim.js"></script>
 <script src="js/field.js"></script>
 <script src="js/render.js"></script>

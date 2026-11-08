@@ -35,18 +35,42 @@ There is no build step, so there is no `rebuild.bat`.
 4. **Auton code** - paste your `autonomous()` (or the whole `main.cpp`), press **Run auton** or `Ctrl + Enter`.
 5. Use the timeline to play, pause and scrub. Click a line in the run log to jump to that motion. Keys: `Space` play/pause, `Home` rewind (stays paused), `←` `→` nudge 0.1 s.
 
+### Path to robot in four steps
+
+The **Preview: Path / Code** switch at the top says what the field runs. **Path** (the default) runs just the selected path, so you can draw and watch without writing any code.
+
+1. **New path**, click the field where it should start, then click where it should go and pick **Curve** or **Line**. Keep clicking to extend it.
+2. When you stop for a moment the robot drives the path on the field, and the timeline plays. The **Use on the robot** panel says how long it takes and warns if it would time out. Set **Lookahead**, **Timeout** and **drive backwards** there.
+3. **Download Path.txt** and drop it in your PROS project's `static/` folder.
+4. **Copy code**, or **Add to my code** to put the `ASSET(...)` line and the `chassis.follow(...)` call into the Code box (it switches to **Code** and runs it there with your other moves).
+
+The code in the panel is exactly what the preview runs, so what you watch is what you paste:
+
+```cpp
+ASSET(Path_txt) // static/Path.txt
+
+void autonomous() {
+    chassis.setPose(-48, -48, 32.3);   // where the path starts, in field inches
+    chassis.follow(Path_txt, 15, 4000);
+    chassis.waitUntilDone();
+}
+```
+
+The code name of an exported file is the file name with non-letters turned into `_` (`Path.txt` is `Path_txt`), which is what PROS's `ASSET()` makes of it. Names containing spaces are not safe in a file name, so the download uses the name's letters and digits only.
+In **Code** mode, **Start at selected path** on the Start pose panel moves the robot to the path's first point and heading.
+
 ### Drawing paths
 
 Press **Edit paths** (above the field), or **New path**, then:
 
-- click empty field: **Curve** or **Line** adds a segment from the last point (the first segment starts at the robot's start pose)
+- click empty field (in **Path** preview the first click of a new path sets where it starts): **Curve** or **Line** adds a segment from the last point (the first segment starts at the robot's start pose)
 - click a point: **Delete** (end points; their segment goes with them). Drag points to move them; an end point takes its two handles with it, hold `Ctrl` to move it alone
 - click a curve: **Convert** (curve <-> line) or **Split** (adds a point there)
 - the **speed graph** under the field: click to add a speed point, drag it, double-click (or `Delete`) to remove it. Points on the field are coloured red (slow) to green (fast)
 - **Selected path** panel: name, min / max speed, bend-rate range, max deceleration, point density
 - `Ctrl+Z` / `Ctrl+Y` undo and redo
 
-Paths you draw (or open from a jerry.io file) are used in code by their name (`Path 2` is `Path_2`), plus the file name for imported ones (`example.txt` is `example_txt`); click the name in the list to copy it.
+Paths you draw (or open from a jerry.io file) are used in code by the name of their exported file (`Path 2` is `Path_2.txt`, so `Path_2_txt`), by the plain name (`Path_2`) and, for imported ones, by the file name (`example.txt` is `example_txt`); click the name in the list to copy it.
 **Export** writes a jerry.io project (`.jerryio`, opens in jerry.io), a LemLib v0.4 `.txt`, or a LemLib v1.0 `.bin`.
 
 The field picture can be switched between the match field, the skills field and the drawn version.
@@ -101,6 +125,7 @@ js/sim.js                       physics, virtual clock, runs your code
 js/translate.js                 C++ -> JS translator
 js/paths.js                     jerry.io file parsing + speed profile
 js/editor.js, js/export.js      path editor model, jerry.io-compatible export
+js/codegen.js                   the ASSET / follow code for a path, and adding it to your code
 js/pathtool.js                  path editing UI (field clicks, speed graph, list)
 assets/field/                   Override field pictures (from path.jerryio)
 js/field.js, js/render.js       Override field + canvas drawing
@@ -109,6 +134,7 @@ examples/                       example.txt, example.jerryio, example_auton.cpp
 rack.json, run-sim.bat, setup.bat, start.bat, serve.py, serve.ps1
 tests/engine.test.js            node tests/engine.test.js
 tests/editor.test.js            node tests/editor.test.js
+tests/flow.test.js              node tests/flow.test.js (path -> generated code -> sim)
 tools/make-examples.js          regenerates examples/ and js/examples.js
 ```
 

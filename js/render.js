@@ -437,6 +437,16 @@
     /** editable paths: speed-coloured points, curves, and control handles for the selected path */
     drawEdit(ctx, edit) {
       const S = this.scale;
+      if (edit.pending) {
+        // first click of a new path: a start marker until the second click makes a segment
+        ctx.beginPath();
+        ctx.arc(this.wx(edit.pending.x), this.wy(edit.pending.y), Math.max(5, 1.5 * S), 0, Math.PI * 2);
+        ctx.fillStyle = C.point;
+        ctx.fill();
+        ctx.strokeStyle = C.pointEdge;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
       edit.paths.forEach((p) => {
         if (!p.visible) return;
         ctx.globalAlpha = p.selected ? 1 : 0.55;

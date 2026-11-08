@@ -166,3 +166,25 @@ ul.paths:empty::after { content: "none loaded"; color: var(--ink-muted); }
 .credit img { height: 22px; width: auto; opacity: .85; }
 .credit .on-dark { display: var(--logo-on-dark); }
 .credit .on-light { display: var(--logo-on-light); }
+
+/* ---- path-first flow */
+[hidden] { display: none !important; }
+.seg { display: inline-flex; align-items: center; gap: 0; }
+.seg .seglabel { color: var(--ink-muted); margin-right: var(--s-2); font-size: 12px; }
+.seg .btn { border-radius: 0; }
+.seg .btn:first-of-type { border-radius: var(--r-sm) 0 0 var(--r-sm); }
+.seg .btn:last-of-type { border-radius: 0 var(--r-sm) var(--r-sm) 0; margin-left: -1px; }
+.sec > p.status { min-height: 1.4em; margin-top: 0; margin-bottom: 0; }
+.status.good { color: var(--success); }
+.status.bad { color: var(--danger); }
+textarea#genCode {
+  display: block; width: calc(100% - 2 * var(--s-3)); height: 150px; resize: vertical; margin-top: var(--s-2);
+  font-size: 12.5px; line-height: 1.45; tab-size: 4; white-space: pre; overflow: auto; background: var(--surface-sunken);
+}
+.btn:disabled { opacity: .5; cursor: default; pointer-events: none; }
+@media (max-width: 600px) {
+  .seg .seglabel { display: none; }
+  .bar { flex-wrap: wrap; }
+}
+.actions.export #btnDownloadPath { flex: 1 1 100%; }
+.actions.export .btn:not(#btnDownloadPath) { flex: 1 1 0; }
