@@ -19,4 +19,6 @@ VEX V5 autonomous simulator (LemLib motions, path editor, chassis / aligner mode
   elsewhere. Accent is violet; status colours are shared across the suite and never change with the accent.
 - App icon: Rack Suite VEX "field grid" family (3x3 tiles on a dark tile; Waypoint's mark is a violet route).
   `assets/icon/icon.svg` is the source; the PNGs and `favicon.ico` are rendered from it at each exact size.
+- Wordmark: inline SVG in `index.html` (header and splash), Rack Suite VEX lettering with a waypoint node for the O,
+  styled in `css/brand.css`. `assets/waypoint-logo.webp` (README banner, link preview) is a render of the splash art.
 - The drawn field was removed on purpose: only the match and skills field photos exist. Don't bring it back.

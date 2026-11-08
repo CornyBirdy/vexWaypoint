@@ -115,6 +115,10 @@
           "name": "Changed",
           "items": [
             {
+              "text": "**New wordmark and splash.** WAYPOINT is now drawn in the Rack Suite VEX lettering (monoline, leaning forward, a violet waypoint node for the O) instead of a cut-out of the old logo picture, so it is sharp at any size and follows the theme. The start-up splash is rebuilt to match: the wordmark, a route that draws itself in (still with reduce motion on) and the tagline. The README banner and link preview use the same artwork. The \"Made by Invictus\" credit now sits at the bottom of the window.",
+              "sub": []
+            },
+            {
               "text": "**New app icon.** A 3x3 field-tile grid with a violet route through it, part of the Rack Suite VEX icon family (Recon uses the same grid with a turquoise viewfinder). Replaces the duotone icon; the favicon and every icon size are rendered from `assets/icon/icon.svg`.",
               "sub": []
             },

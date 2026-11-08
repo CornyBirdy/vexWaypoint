@@ -3,6 +3,8 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 body {
+  /* the page is at least one screen tall, so the "Made by Invictus" credit sits at the bottom */
+  min-height: 100vh; display: flex; flex-direction: column;
   background: var(--ground);
   color: var(--ink);
   font: 13px/1.4 var(--font);
@@ -147,6 +149,7 @@ select { background: var(--surface-raised); }
 .layout {
   display: grid; grid-template-columns: minmax(380px, min(46vw, calc(100vh - 170px))) minmax(0, 1fr); gap: var(--s-4);
   padding: var(--s-3) var(--s-4); max-width: 2200px; margin: 0 auto; align-items: start;
+  width: 100%; flex: 1 0 auto;
 }
 .stage { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; align-items: stretch; }
 .stage > * { width: 100%; min-width: 0; }

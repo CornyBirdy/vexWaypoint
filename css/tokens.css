@@ -4,7 +4,13 @@
 
 /* ---- sizes, type (same in both themes) */
 :root {
-  --splash-bg: #08060e; /* the dark of assets/waypoint-logo.webp */
+  /* start-up splash: always dark, whatever the theme */
+  --splash-bg: #08060e;
+  --splash-ink: #f1edff;
+  --splash-muted: #a8a3b8;
+  --splash-accent: #a78bfa;
+  --splash-node: #ddd4ff;
+  --splash-glow: rgba(167, 139, 250, 0.6);
   --r-xs: 3px;
   --r-sm: 6px;
   --r-md: 10px;
