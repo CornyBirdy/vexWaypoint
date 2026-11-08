@@ -5,12 +5,13 @@
 ASSET(example_txt)
 
 void autonomous() {
-    // 0, 0, 0 is wherever the start pose is set in the sim
-    chassis.setPose(0, 0, 0);
+    // Field coordinates, like on a real robot: the origin is the middle of the field and 0 deg faces
+    // up the field. This puts the robot at the bottom-left start of the sim; the sim starts it here.
+    chassis.setPose(-58, -58, 0);
 
-    chassis.moveToPoint(0, 24, 3000);               // drive forward 24 in
+    chassis.moveToPoint(-58, -36, 3000);            // drive forward 22 in
     chassis.turnToHeading(90, 1500);                // face right
-    chassis.moveToPose(24, 24, 90, 3000, {.lead = 0.5});
+    chassis.moveToPose(-36, -36, 90, 3000, {.lead = 0.5});
     chassis.waitUntilDone();
 
     // follow a jerry.io path: lookahead 15 in, 4 s timeout
@@ -19,6 +20,6 @@ void autonomous() {
 
     chassis.turnToPoint(0, 0, 1000);                // look at the centre goal
     chassis.swingToHeading(180, lemlib::DriveSide::LEFT, 1500);
-    chassis.moveToPoint(24, 48, 3000, {.forwards = false, .maxSpeed = 80});
+    chassis.moveToPoint(-36, -12, 3000, {.forwards = false, .maxSpeed = 80});
     chassis.waitUntilDone();
 }

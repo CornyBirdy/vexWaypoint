@@ -57,6 +57,88 @@
     return out;
   }
 
+  /** the source with comments and the insides of strings blanked out, same length (newlines kept) */
+  function maskSource(src) {
+    const out = src.split('');
+    const n = src.length;
+    let i = 0;
+    while (i < n) {
+      const c = src[i];
+      const d = src[i + 1];
+      if (c === '"' || c === "'" || c === '`') {
+        let j = i + 1;
+        while (j < n && src[j] !== c && src[j] !== '\n') {
+          if (src[j] === '\\') j++;
+          j++;
+        }
+        for (let k = i + 1; k < Math.min(j, n); k++) out[k] = ' ';
+        i = j + 1;
+      } else if (c === '/' && d === '/') {
+        while (i < n && src[i] !== '\n') out[i++] = ' ';
+      } else if (c === '/' && d === '*') {
+        const end = src.indexOf('*/', i + 2);
+        const stop = end < 0 ? n : end + 2;
+        for (let k = i; k < stop; k++) if (src[k] !== '\n') out[k] = ' ';
+        i = stop;
+      } else i++;
+    }
+    return out.join('');
+  }
+
+  /** LemLib motions and the position of their timeout argument (0-based) in the call */
+  const MOTION_TIMEOUT_ARG = { moveToPoint: 2, moveToPose: 3, turnToHeading: 1, turnToPoint: 2, swingToHeading: 2, swingToPoint: 3, follow: 2 };
+
+  /**
+   * Finds every `chassis.moveToPoint(...)`-style call in the code, remembers where its timeout argument is
+   * (offsets in the ORIGINAL text) and renames the call to `moveToPoint__S<n>` so a run can tell the calls apart.
+   * @returns {{src:string, sites:Array<{id:number, method:string, line:number, timeout:null|{start:number,end:number,text:string,value:number|null}}>}}
+   */
+  function markMotionSites(src) {
+    const masked = maskSource(src);
+    const re = new RegExp('(?:\\.|->)\\s*(' + Object.keys(MOTION_TIMEOUT_ARG).join('|') + ')\\s*\\(', 'g');
+    const sites = [];
+    let out = '';
+    let last = 0;
+    let m;
+    while ((m = re.exec(masked))) {
+      const method = m[1];
+      const open = m.index + m[0].length - 1;
+      const nameEnd = m.index + m[0].indexOf(method) + method.length;
+      // matching close paren and the top-level argument ranges
+      let depth = 0;
+      let close = -1;
+      const cuts = [open + 1];
+      for (let k = open; k < masked.length; k++) {
+        const ch = masked[k];
+        if (ch === '(' || ch === '{' || ch === '[') depth++;
+        else if (ch === ')' || ch === '}' || ch === ']') {
+          depth--;
+          if (depth === 0) {
+            close = k;
+            break;
+          }
+        } else if (ch === ',' && depth === 1) cuts.push(k + 1);
+      }
+      if (close < 0) continue;
+      cuts.push(close + 1);
+      const idx = MOTION_TIMEOUT_ARG[method];
+      let timeout = null;
+      if (idx < cuts.length - 1) {
+        let a = cuts[idx];
+        let b = cuts[idx + 1] - 1;
+        while (a < b && /\s/.test(src[a])) a++;
+        while (b > a && /\s/.test(src[b - 1])) b--;
+        const text = src.slice(a, b);
+        timeout = { start: a, end: b, text, value: /^\d+$/.test(text) ? Number(text) : null };
+      }
+      const id = sites.length;
+      sites.push({ id, method, line: src.slice(0, m.index).split('\n').length, timeout });
+      out += src.slice(last, nameEnd) + '__S' + id;
+      last = nameEnd;
+    }
+    return { src: out + src.slice(last), sites };
+  }
+
   /** index of the bracket matching the one at `open` (string/char aware) */
   function matchBracket(s, open) {
     const pairs = { '(': ')', '{': '}', '[': ']' };
@@ -126,10 +208,12 @@
     return funcs;
   }
 
+  // lemlib::Omniwheel constants (LemLib docs, "Configuration"): the real diameters, not the marketed ones
   const OMNI = {
-    NEW_275: 2.75, OLD_275: 2.75, NEW_275_HALF: 2.75, OLD_275_HALF: 2.75,
-    NEW_325: 3.25, OLD_325: 3.25, NEW_325_HALF: 3.25, OLD_325_HALF: 3.25,
-    NEW_4: 4, OLD_4: 4, NEW_4_HALF: 4, OLD_4_HALF: 4,
+    NEW_2: 2.125,
+    NEW_275: 2.75, OLD_275: 2.75, NEW_275_HALF: 2.744, OLD_275_HALF: 2.74,
+    NEW_325: 3.25, OLD_325: 3.25, NEW_325_HALF: 3.246, OLD_325_HALF: 3.246,
+    NEW_4: 4, OLD_4: 4.18, NEW_4_HALF: 3.995, OLD_4_HALF: 4.175,
   };
 
   function numArg(s) {
@@ -155,6 +239,22 @@
         wheelDiameter: numArg(a[3]),
         rpm: numArg(a[4]),
         horizontalDrift: numArg(a[5]),
+      };
+    }
+    // odometry setup: tracking wheels (offset from the tracking centre) and which of them / the IMU go into OdomSensors
+    const wheels = {};
+    const reTw = /\bTrackingWheel\s+(\w+)\s*[({]([^;]*?)[)}]\s*;/g;
+    while ((m = reTw.exec(clean))) wheels[m[1]] = { offset: numArg(splitTopLevel(m[2])[2]) };
+    const reOs = /\bOdomSensors\s+(\w+)\s*[({]([^;]*?)[)}]\s*;/;
+    if ((m = reOs.exec(clean))) {
+      const a = splitTopLevel(m[2]).map((x) => x.replace(/^[\s&*]+/, '').trim());
+      const used = (x) => !!x && !/^(nullptr|NULL|0)$/.test(x);
+      const off = (x) => (wheels[x] && wheels[x].offset != null ? wheels[x].offset : 0);
+      cfg.odom = {
+        vertical: used(a[0]) ? { on: true, offset: off(a[0]) } : { on: false },
+        second: used(a[1]),
+        horizontal: used(a[2]) ? { on: true, offset: off(a[2]) } : { on: false },
+        imu: used(a[4]),
       };
     }
     const settings = {};
@@ -210,8 +310,11 @@
         const bodyClose = matchBracket(s, bodyOpen);
         if (bodyClose >= 0) {
           const id = '__w' + loopCounter++;
-          const body = guardWhileLoops(s.slice(bodyOpen, bodyClose + 1));
-          out += s.slice(i, m.index) + `{ const ${id} = __loopStart(${JSON.stringify(cond.trim())}); while (__guard(), !__stuck(${id}) && (${cond})) ${body} }`;
+          const raw = s.slice(bodyOpen, bodyClose + 1);
+          // a loop that does nothing but wait (`while (liftBusy) { pros::delay(20); }`)
+          const waitOnly = /^\{\s*(?:(?:await\s+)?(?:pros::)?delay\s*\([^;{}]*\)\s*;?\s*)*\}$/.test(raw) && /delay/.test(raw);
+          const body = guardWhileLoops(raw);
+          out += s.slice(i, m.index) + `{ const ${id} = __loopStart(${JSON.stringify(cond.trim())}, ${waitOnly}); while (__guard(), !__stuck(${id}) && (${cond})) ${body} }`;
           i = bodyClose + 1;
           re.lastIndex = i;
           continue;
@@ -279,6 +382,12 @@
     s = s.replace(/\b[A-Za-z_]\w*::([A-Za-z_]\w*)/g, '$1');
     // designated initialisers: {.a = 1, .b = 2}
     s = s.replace(/([{,]\s*)\.([A-Za-z_]\w*)\s*=(?!=)/g, '$1$2:');
+    // Pose with braces: `Pose{1, 2, 3}`, `Pose p{1, 2, 3};` and `setPose({1, 2, 3})`
+    s = s.replace(/\bsetPose\s*\(\s*\{([^{}]*)\}/g, 'setPose(Pose($1)');
+    s = s.replace(/\bPose\s+([A-Za-z_]\w*)\s*\{([^{}]*)\}/g, 'Pose $1($2)');
+    s = s.replace(/\bPose\s*\{([^{}]*)\}/g, 'Pose($1)');
+    // a brace list passed as an argument, `avg({1, 2, 3})`: an array (empty `{}` and `{.a = 1}` params are left alone)
+    s = s.replace(/([(,]\s*)\{(\s*[^\s{}:][^{}:]*)\}/g, '$1[$2]');
     // C++-only syntax
     s = s.replace(/\b(?:static|reinterpret|const|dynamic)_cast\s*<[^>]*>/g, '');
     s = s.replace(/\(\s*(?:unsigned\s+)?(?:int|float|double|bool|long|short|size_t)\s*\)/g, '');
@@ -296,16 +405,23 @@
     s = s.replace(declNum, '$1let $2');
     s = s.replace(/\blet\s+(\w+)\s*\[[^\]]*\]\s*=\s*\{([^}]*)\}/g, 'let $1 = [$2]');
     // `Pose p(1, 2, 3);`  and  `Foo bar(args);`
-    s = s.replace(/(^|[;{}\n])(\s*)([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*\(([^()]*)\)\s*;/g, (all, pre, ws, type, name, args) => {
-      if (KEYWORDS.has(type)) return all;
-      if (type === 'Pose') return `${pre}${ws}let ${name} = Pose(${args});`;
-      return `${pre}${ws}let ${name} = NOOP;`;
-    });
+    // (a match eats the `;` that the next declaration on the same line starts after, so go round again)
+    for (let pass = 0, prev = ''; pass < 6 && prev !== s; pass++) {
+      prev = s;
+      s = s.replace(/(^|[;{}\n])(\s*)([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*\(([^()]*)\)\s*;/g, (all, pre, ws, type, name, args) => {
+        if (KEYWORDS.has(type)) return all;
+        if (type === 'Pose' || type === 'Timer' || type === 'PID') return `${pre}${ws}let ${name} = ${type}(${args});`;
+        return `${pre}${ws}let ${name} = NOOP;`;
+      });
+    }
     // `Foo bar = expr;`  and  `Foo bar;`
-    s = s.replace(/(^|[;{}\n])(\s*)([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*(=(?!=)|;)/g, (all, pre, ws, type, name, tail) => {
-      if (KEYWORDS.has(type)) return all;
-      return `${pre}${ws}let ${name} ${tail === ';' ? '= NOOP;' : '='}`;
-    });
+    for (let pass = 0, prev = ''; pass < 6 && prev !== s; pass++) {
+      prev = s;
+      s = s.replace(/(^|[;{}\n])(\s*)([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*(=(?!=)|;)/g, (all, pre, ws, type, name, tail) => {
+        if (KEYWORDS.has(type)) return all;
+        return `${pre}${ws}let ${name} ${tail === ';' ? '= NOOP;' : '='}`;
+      });
+    }
 
     s = bracesToArrays(s);
     s = guardWhileLoops(s);
@@ -366,6 +482,17 @@
    */
   function compile(source, opts) {
     opts = opts || {};
+    if (opts.markSites) {
+      // number every motion call (for auto-tuning the timeouts); the translator sees the renamed calls
+      const mk = markMotionSites(source);
+      const r = compileInner(mk.src, opts);
+      r.sites = mk.sites;
+      return r;
+    }
+    return compileInner(source, opts);
+  }
+
+  function compileInner(source, opts) {
     const warnings = [];
     const ignored = [];
     if (opts.language === 'js') {
@@ -461,5 +588,5 @@
     return bad.slice(0, 3);
   }
 
-  Object.assign(NS, { compileAuton: compile, diagnoseJs: diagnose, stripComments, splitTopLevel });
+  Object.assign(NS, { compileAuton: compile, diagnoseJs: diagnose, stripComments, splitTopLevel, markMotionSites, MOTION_TIMEOUT_ARG });
 })();

@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Waypoint</title>
 <meta name="author" content="Invictus 52111A">
+<meta name="description" content="Waypoint, the VEX V5 autonomous simulator: run your LemLib auton code, draw paths and scrub the result on the Override field.">
+<meta property="og:title" content="Waypoint">
+<meta property="og:description" content="The VEX V5 autonomous simulator">
+<meta property="og:image" content="assets/waypoint-logo.webp">
 <link rel="icon" type="image/svg+xml" href="assets/icon/icon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="assets/icon/icon-32.png">
 <link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48">
@@ -12,13 +16,20 @@
 <meta name="color-scheme" content="dark light">
 <link rel="stylesheet" href="css/tokens.css">
 <link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/brand.css">
 <script src="js/theme.js"></script>
 </head>
 <body>
+<div id="splash" class="splash" role="presentation" hidden><img src="assets/waypoint-logo.webp" alt="Waypoint, the VEX V5 autonomous simulator"></div>
+<script>
+  // show the splash once per browser session; the app removes it when the first run is ready
+  try { if (!sessionStorage.getItem('waypointSplash')) { document.getElementById('splash').hidden = false; sessionStorage.setItem('waypointSplash', '1'); } } catch (e) { /* no storage: no splash */ }
+</script>
 <header class="bar">
-  <h1>Waypoint</h1>
+  <h1 class="brand"><span class="sr-only">Waypoint</span></h1>
   <span class="grow"></span>
   <label class="check"><input type="checkbox" id="autoRun" checked> re-run on change</label>
+  <button id="btnChangelog" class="btn" type="button" title="What changed in each update">Changelog<span class="dot" id="changelogDot" hidden></span></button>
   <button id="btnTheme" class="btn" type="button" title="Colour theme: Auto follows your system" aria-label="Colour theme">Theme: Auto</button>
   <button id="btnExample" class="btn" type="button">Load example</button>
   <button id="btnRun" class="btn primary" type="button" title="Ctrl+Enter">Run</button>
@@ -35,7 +46,6 @@
       <select id="fieldStyle" aria-label="Field picture">
         <option value="photo-match">Field: match</option>
         <option value="photo-skills">Field: skills</option>
-        <option value="drawn">Field: drawn</option>
       </select>
     </div>
     <div class="canvas-wrap">
@@ -65,6 +75,7 @@
       <tr><th>field</th><td id="tField">-</td></tr>
       <tr><th>code</th><td id="tCode">-</td></tr>
       <tr><th>speed</th><td id="tSpeed">-</td></tr>
+      <tr><th>align</th><td id="tAlign">-</td></tr>
       <tr><th>motion</th><td id="tMotion">-</td></tr>
       <tr><th>cursor</th><td id="cursor">-</td></tr>
     </table>
@@ -74,27 +85,86 @@
       <label class="check"><input type="checkbox" id="optPaths" checked> paths</label>
       <label class="check"><input type="checkbox" id="optAxes" checked> code axes</label>
       <label class="check"><input type="checkbox" id="optAim" checked> target</label>
+      <label class="check"><input type="checkbox" id="optOdom" checked> odometry ghost</label>
+      <label class="check"><input type="checkbox" id="optGoals"> goal hitboxes</label>
     </div>
 
     <details class="sec" open>
       <summary>Log</summary>
       <div id="log" class="log" role="log"></div>
     </details>
+
+    <details class="sec">
+      <summary>Run history <span class="aside" id="runCount"></span></summary>
+      <ul id="runList" class="runs"></ul>
+      <p class="note">Every Run draws a new random robot. <b>Replay</b> runs one of these draws again with the current settings.</p>
+    </details>
   </section>
 
   <aside class="panel">
-    <details class="sec" open>
+    <nav class="tabs" id="tabs" role="tablist" aria-label="Settings">
+      <button class="tab on" type="button" role="tab" data-tab="setup">Robot</button>
+      <button class="tab" type="button" role="tab" data-tab="aligners">Aligners and errors</button>
+      <button class="tab" type="button" role="tab" data-tab="paths">Paths</button>
+      <button class="tab" type="button" role="tab" data-tab="code">Code</button>
+      <button class="tab" type="button" role="tab" data-tab="all">Everything</button>
+    </nav>
+    <div class="panes" id="panes">
+    <details class="sec" data-tab="setup" open>
       <summary>Start pose</summary>
       <div class="props" id="formStart"></div>
+      <label class="check realtoggle"><input type="checkbox" id="startFromCode"> take the start pose from <code>setPose()</code> in the code</label>
+      <p class="note" id="startNote" hidden>Your code's <code>setPose()</code> placed the robot here (field coordinates, heading 0&deg; = up the field), so these numbers follow the code.</p>
       <p class="note">Code 0, 0, 0 is this pose. +y is the robot's forward, +x its right. Drag the dashed robot on the field to move it, the handle to turn it.</p>
     </details>
 
-    <details class="sec" open>
+    <details class="sec" data-tab="setup" open>
       <summary>Drivetrain <span class="aside" id="topSpeed"></span></summary>
       <div class="props" id="formDrive"></div>
+      <h3>Motors and weight</h3>
+      <label class="check realtoggle"><input type="checkbox" id="motorAuto"> work out the real-life speed and motor response from the motors</label>
+      <div class="props" id="formMotor"></div>
+      <div class="props">
+        <label class="field"><span>Cartridge (11 W motors)</span><select id="motorCartridge"><option value="100">100 rpm (red)</option><option value="200">200 rpm (green)</option><option value="600">600 rpm (blue)</option></select></label>
+        <label class="field"><span>Weight unit</span><select id="motorUnit"><option value="kg">kg</option><option value="lb">lb</option></select></label>
+      </div>
+      <details class="sub"><summary>Motor current figures</summary><div class="props" id="formMotorCur"></div>
+        <p class="note">Typical figures, not measured on your motors: VEX publishes the stall torque (2.1 N m for the 11 W motor on the 100 rpm cartridge, 0.5 N m for the 5.5 W motor) and the 2.5 A limit; the true stall and free current (about 4.7 A and 0.14 A for the 11 W motor) come from a community fit on the VEX Forum. The 5.5 W motor is not exactly half of an 11 W one, so it has its own figures.</p></details>
+      <p class="note" id="motorInfo"></p>
+      <p class="note">The wheel RPM above is the wheel's ideal speed (cartridge x gearing). With this on, the speed and response are worked out from the motors' torque, the current limit, the gearing, the weight and the rolling resistance of your wheels, and the two boxes above show the result. Mix 11 W and 5.5 W motors per side to match your drive (two 11 W and one 5.5 W a side is a 55 W drive, 27.5 W a side).</p>
     </details>
 
-    <details class="sec" open>
+    <details class="sec" data-tab="setup" open>
+      <summary>Chassis <span class="aside">wheels + tracking wheels</span></summary>
+      <canvas id="chassisCanvas" class="chassiscv" aria-label="Top-down drawing of the chassis on an inch grid"></canvas>
+      <div id="chassisControls" class="chassisctl"></div>
+      <p class="note" id="chassisInfo"></p>
+      <p class="note">Front of the robot is up. There are 4 wheel positions a side (8 in all). Pick <b>Omni</b>, <b>Traction</b> or <b>Blank</b> for each, or click a wheel in the drawing to step through them. A 4WD is just four blanks. A blank position has no wheel. Wheel size is the wheel diameter above; the robot length and track width set where the wheels sit.</p>
+    </details>
+
+    <details class="sec" data-tab="aligners" open>
+      <summary>Goal aligners <span class="aside">hit the goals</span></summary>
+      <label class="check realtoggle"><input type="checkbox" id="solidGoals"> goals and walls are solid (the robot hits them)</label>
+      <p class="note">Off by default. It switches itself on while any aligners are on, because aligners need solid goals to push against. This is separate from the real-life error below: a perfect robot can still hit a goal.</p>
+      <div id="alignSummary" class="aligns"></div>
+      <div class="actions">
+        <button id="btnAlignFront" class="btn" type="button">Edit front aligners</button>
+        <button id="btnAlignBack" class="btn" type="button">Edit back aligners</button>
+      </div>
+      <h3>Goal base, flat to flat (in)</h3>
+      <div class="props" id="formGoals"></div>
+      <p class="note">The goals are screwed to the field, so they never move: the robot (its body and its aligners) is stopped by them, slides along them with friction and is turned by them. A goal counts as <b>aligned</b> when any part of it gets inside a small circle around the aligner's <b>alignment point</b> (the green diamond in the aligner editor). The circle's radius is <b>Aligned within (in)</b>: 0 means the goal must touch the point, a larger number is more forgiving. With real-life error on, the aligners grip a little harder and vary from run to run, so aligning is slightly less certain than in a perfect sim. The goal footprint is a square with cut-off corners, measured off the field picture (about 5.65 in across, corners cut by 1 in); you can change it here.</p>
+    </details>
+
+    <details class="sec" data-tab="aligners" open>
+      <summary>Real-life error <span class="aside">gyro drift + wheel slip</span></summary>
+      <label class="check realtoggle"><input type="checkbox" id="realOn"> simulate real-life error</label>
+      <label class="field"><span>Error size (x)</span><input type="number" id="realMult" step="0.1" min="0.1" max="5" inputmode="decimal" value="1"></label>
+      <p class="note">Error size scales every error at once: 1 is a typical robot, 2 is twice the gyro drift, noise and wheel slip with less grip (a worst case), 0.5 is half.</p>
+      <p class="note">On: every Run gives the robot a new random draw (its gyro has a bias, a turn-rate error and noise; the floor grip changes a little), so results vary from run to run like on a real field. How big the errors are comes from the Chassis above: traction wheels grip and slide less, tracking wheels keep the odometry right when the drive wheels slip. Changing a setting re-runs with the same draw. The odometry only sees the wheels and the gyro, so it slowly disagrees with where the robot really is. <code>setPose()</code> resets it, like a wall reset. Off (the default): a perfect robot, no odometry error and no slip.</p>
+    </details>
+
+    <details class="sec" data-tab="paths" open>
       <summary>Paths</summary>
       <div class="dropzone" id="drop">
         <input type="file" id="fileInput" multiple>
@@ -117,7 +187,7 @@
       <p class="note" id="pathModeNote"></p>
     </details>
 
-    <details class="sec" id="pathProps" open hidden>
+    <details class="sec" id="pathProps" data-tab="paths" open hidden>
       <summary>Selected path</summary>
       <div class="props">
         <label class="field"><span>Name</span><input id="pName" type="text" maxlength="40"></label>
@@ -131,7 +201,7 @@
       <p class="note">Speeds use LemLib v0.4 units (0-127). Slower where the path bends more, and never faster than the robot could stop from.</p>
     </details>
 
-    <details class="sec" open>
+    <details class="sec" data-tab="code" open>
       <summary>Code</summary>
       <div class="props">
         <label class="field"><span>Language</span>
@@ -145,21 +215,88 @@
       <textarea id="code" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Autonomous code"></textarea>
       <div class="actions">
         <button id="btnImport" class="btn" type="button" title="Read lemlib::Drivetrain and ControllerSettings from the code above">Import settings from code</button>
+        <button id="btnTune" class="btn" type="button" title="Measure every motion and set its timeout to the time it needs plus a safety margin">Auto-tune timeouts</button>
       </div>
       <p class="note">Drivetrain only. Calls on other objects (intake, lift, clamp...) are ignored.</p>
     </details>
 
-    <details class="sec">
+    <details class="sec" data-tab="code">
       <summary>LemLib controllers</summary>
       <h3>Lateral</h3><div class="props" id="formLat"></div>
       <h3>Angular</h3><div class="props" id="formAng"></div>
     </details>
+
+    </div>
 
     <div class="actions end">
       <button id="btnReset" class="btn" type="button">Reset settings</button>
     </div>
   </aside>
 </main>
+
+ <dialog id="alignDlg" class="aligndlg" aria-labelledby="alignTitle">
+  <header>
+    <h2 id="alignTitle">Goal aligners</h2>
+    <div class="seg"><button class="btn on" type="button" data-side="front">Front</button><button class="btn" type="button" data-side="back">Back</button></div>
+    <span class="grow"></span>
+    <button id="alignClose" class="btn primary" type="button">Done</button>
+  </header>
+  <div class="alignbody">
+    <div class="alignleft">
+      <div class="aligntb">
+        <div id="alignTools" class="seg"></div>
+        <button id="alignMirror" class="btn" type="button" title="Add a mirror image (left / right) of the selected shape">Mirror copy</button>
+        <button id="alignDelete" class="btn" type="button" title="Delete">Delete</button>
+        <button id="alignUndo" class="btn" type="button" title="Ctrl+Z">Undo</button>
+        <button id="alignRedo" class="btn" type="button" title="Ctrl+Y">Redo</button>
+        <label class="check">Snap <select id="alignSnap" aria-label="Snap to the grid"><option value="1" selected>1 in</option><option value="0.5">0.5 in</option><option value="0.25">0.25 in</option><option value="0">off</option></select></label>
+        <label class="check"><input id="alignMirrorDraw" type="checkbox"> also draw the mirror image</label>
+        <label class="check"><input id="alignShowGoal" type="checkbox" checked> show a goal seated at the point</label>
+        <button id="alignFit" class="btn" type="button" title="Show the whole robot">Fit</button>
+        <button id="alignExample" class="btn" type="button" title="Two angled wings meeting at the middle">Add example funnel</button>
+        <button id="alignClear" class="btn" type="button">Clear</button>
+      </div>
+      <canvas id="alignCanvas" aria-label="Aligner sketch on an inch grid"></canvas>
+      <p id="alignStatus" class="note"></p>
+      <p class="note">Keys: V select, L line, A 3-point arc, C centre arc, O circle, Delete, Ctrl+Z / Ctrl+Y. Mouse wheel zooms, right or middle drag (or Alt + drag) pans. Everything is in inches from the robot's centre, front is up. Drag the green diamond to place the alignment point yourself.</p>
+    </div>
+    <div id="alignProps" class="alignprops"></div>
+  </div>
+</dialog>
+
+ <dialog id="tuneDlg" class="tunedlg" aria-labelledby="tuneTitle">
+  <header>
+    <h2 id="tuneTitle">Auto-tune timeouts</h2>
+    <span class="grow"></span>
+    <button id="tuneClose" class="btn" type="button">Close</button>
+  </header>
+  <div class="tunebody">
+    <p class="note">Runs your auton to see how long every motion really takes, then gives each call a timeout of that time plus a safety margin. A move that runs into a wall or a goal and can never get there gets a timeout a little after it hit (or after an aligner caught the goal), so it has time to square up but does not push in for long. It then runs the result again to check, and puts the numbers back into a copy of your code.</p>
+    <div class="props tuneopts">
+      <label class="field"><span>Safety margin (%)</span><input id="tunePct" type="number" step="5" min="0" max="300" value="20"></label>
+      <label class="field"><span>Plus (ms)</span><input id="tuneExtra" type="number" step="25" min="0" max="3000" value="150"></label>
+      <label class="field"><span>Wait after hitting a wall or goal (ms)</span><input id="tuneAlign" type="number" step="50" min="0" max="5000" value="400"></label>
+      <label class="field"><span>Wait after an aligner catches the goal (ms)</span><input id="tuneAligned" type="number" step="25" min="0" max="3000" value="200"></label>
+      <label class="field"><span>Random draws to check</span><input id="tuneDraws" type="number" step="1" min="1" max="8" value="3"></label>
+    </div>
+    <div class="actions"><button id="tuneRun" class="btn primary" type="button">Run auto-tune</button><span id="tuneStatus" class="note"></span></div>
+    <div id="tuneOut" hidden>
+      <p id="tuneSummary" class="note"></p>
+      <div class="tunetable"><table id="tuneTable"></table></div>
+      <h3>Your code with the tuned timeouts</h3>
+      <textarea id="tuneCode" readonly spellcheck="false" aria-label="Code with tuned timeouts"></textarea>
+      <div class="actions"><button id="tuneCopy" class="btn" type="button">Copy code</button><button id="tuneUse" class="btn" type="button" title="Replace the code in the editor with this">Use this code in the editor</button></div>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="changelog" class="changelog" aria-labelledby="changelogTitle">
+  <header>
+    <h2 id="changelogTitle">Changelog</h2>
+    <button id="changelogClose" class="btn" type="button" aria-label="Close">Close</button>
+  </header>
+  <div id="changelogBody" class="body"></div>
+</dialog>
 
 <footer class="credit">
   <span>Made by</span>
@@ -172,10 +309,16 @@
 <script src="js/translate.js"></script>
 <script src="js/editor.js"></script>
 <script src="js/export.js"></script>
+<script src="js/chassis.js"></script>
+<script src="js/motors.js"></script>
+<script src="js/aligners.js"></script>
+<script src="js/contact.js"></script>
 <script src="js/sim.js"></script>
-<script src="js/field.js"></script>
 <script src="js/render.js"></script>
 <script src="js/examples.js"></script>
+<script src="js/changelog.js"></script>
+<script src="js/sketch.js"></script>
+<script src="js/autotune.js"></script>
 <script src="js/pathtool.js"></script>
 <script src="js/app.js"></script>
 </body>

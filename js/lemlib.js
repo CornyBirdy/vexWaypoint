@@ -135,6 +135,8 @@
       this.t0 = ch.clock.now;
       this.t1 = null;
       this.donePromise = new Promise((r) => (this._res = r));
+      this.site = ch.nextSite == null ? null : ch.nextSite; // which call in the code started it (auto-tune)
+      ch.nextSite = null;
     }
     /** called when the motion actually starts running (after any earlier motion finished) */
     begin() {
@@ -596,6 +598,7 @@
       // code frame = field start pose; (0,0,0) in code is the start pose
       this.frame = { px: startPose.x, py: startPose.y, psi: startPose.h * D2R };
       this.motion = null;
+      this.nextSite = null;
       this.idleWaiters = [];
       this.aim = null;
       this.motionCount = 0;
@@ -603,14 +606,23 @@
     }
 
     // ----- frames
+    /** where the robot's odometry says it is (what getPose() and every motion controller use) */
     poseRad() {
       const r = this.robot;
+      return this._toCode(r.sx, r.sy, r.sh);
+    }
+    /** where the robot really is, in the code frame (identical to poseRad() unless real-life error is on) */
+    truePoseRad() {
+      const r = this.robot;
+      return this._toCode(r.x, r.y, r.h);
+    }
+    _toCode(fx, fy, fh) {
       const f = this.frame;
-      const vx = r.x - f.px;
-      const vy = r.y - f.py;
+      const vx = fx - f.px;
+      const vy = fy - f.py;
       const c = Math.cos(f.psi);
       const s = Math.sin(f.psi);
-      return { x: vx * c - vy * s, y: vx * s + vy * c, t: r.h - f.psi };
+      return { x: vx * c - vy * s, y: vx * s + vy * c, t: fh - f.psi };
     }
     codeToField(x, y) {
       const f = this.frame;
@@ -632,12 +644,23 @@
       if (th < 0) th += 360;
       return { x: p.x, y: p.y, theta: th, heading: th };
     }
+    /**
+     * Declares the robot to be at (x, y, thetaDeg). The code frame is re-anchored on where the robot
+     * really is, and odometry restarts from there (like a wall reset): accumulated position and heading
+     * error is cleared, but the gyro keeps drifting afterwards.
+     */
     setPose(x, y, thetaDeg) {
       const r = this.robot;
       const psi = r.h - thetaDeg * D2R;
       const c = Math.cos(psi);
       const s = Math.sin(psi);
       this.frame = { px: r.x - (x * c + y * s), py: r.y - (-x * s + y * c), psi };
+      r.resetOdometry();
+    }
+
+    /** odometry x and y go to 0, the heading is kept (the robot itself does not move) */
+    resetLocalPosition() {
+      this.frame = { px: this.robot.sx, py: this.robot.sy, psi: this.frame.psi };
     }
 
     drive(l, r) {
