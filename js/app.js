@@ -8,7 +8,7 @@
   // ------------------------------------------------------------------ settings
 
   const DEFAULTS = {
-    start: { x: -58, y: -58, h: 0 },
+    start: { x: -58, y: 0, h: 90 },
     robot: { wheelDiameter: 3.25, rpm: 450, speedPct: 90, trackWidth: 12, length: 15, width: 15, responseMs: 80, motor: JSON.parse(JSON.stringify(V.DEFAULT_MOTOR)) },
     cfg: { horizontalDrift: 2, pathMode: 'field', mechanismWait: 0, startFromCode: true, solidGoals: false },
     aligners: JSON.parse(JSON.stringify(V.DEFAULT_ALIGNERS)),

@@ -147,6 +147,10 @@
           "name": "Changed",
           "items": [
             {
+              "text": "**The default start pose is now midfield on the red wall, facing the centre** (x -58, y 0, 90°) instead of the bottom-left corner facing up. It is used for drawn paths and for code without its own `chassis.setPose()`. Saved settings keep their start pose: press *Reset settings* to get the new one.",
+              "sub": []
+            },
+            {
               "text": "**New wordmark and splash.** WAYPOINT is now drawn in the Rack Suite VEX lettering (monoline, leaning forward, a the A drawn without its crossbar and a violet waypoint inside it) instead of a cut-out of the old logo picture, so it is sharp at any size and follows the theme. The start-up splash is rebuilt to match: the wordmark, a route that draws itself in (still with reduce motion on) and the tagline. The README banner and link preview use the same artwork. The \"Made by Invictus\" credit now sits at the bottom of the window.",
               "sub": []
             },
