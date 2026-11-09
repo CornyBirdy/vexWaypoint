@@ -225,6 +225,13 @@
       }
       const bytes = new Uint8Array(await f.arrayBuffer());
       const binary = bytes.subarray(0, 256).includes(0);
+      if (!binary) {
+        const text = new TextDecoder().decode(bytes);
+        if (V.Tune.isPoseLog(text)) {
+          V.Tune.addText(text, f.name);
+          continue;
+        }
+      }
       const res = V.parsePathFile(f.name, binary ? bytes : new TextDecoder().decode(bytes));
       warn.push(...res.warnings);
       if (importEditable(res, f.name)) continue;
@@ -332,13 +339,13 @@
         for (let i = 0; i < f.t.length; i++) trail.push({ x: f.x[i], y: f.y[i] });
       }
       renderLog(logLines, res);
-      const scrub = $('scrub');
-      scrub.max = String(res.durationMs);
+      updateScrubMax();
       simMs = 0;
       playing = !!opts.autoplay && !!res.frames && res.durationMs > 0;
       lastTs = 0;
       updateLimitBadge();
       syncPlayButton();
+      V.Tune.refresh();
       requestDraw();
       save();
     } finally {
@@ -349,6 +356,14 @@
         runNow({ autoplay: false });
       }
     }
+  }
+
+  /** timeline length: the sim, or a longer real-robot log loaded in Tune */
+  function totalMs() {
+    return Math.max(result && result.frames ? result.durationMs : 0, V.Tune.maxDuration());
+  }
+  function updateScrubMax() {
+    $('scrub').max = String(totalMs());
   }
 
   let debounce = 0;
@@ -459,11 +474,11 @@
 
   function frame(ts) {
     drawQueued = false;
-    if (playing && result && result.frames) {
+    if (playing && totalMs() > 0) {
       if (lastTs) simMs += (ts - lastTs) * parseFloat($('speed').value);
       lastTs = ts;
-      if (simMs >= result.durationMs) {
-        simMs = result.durationMs;
+      if (simMs >= totalMs()) {
+        simMs = totalMs();
         playing = false;
         syncPlayButton();
       }
@@ -479,6 +494,7 @@
       paths: $('optPaths').checked ? previewPaths() : null,
       edit: $('optPaths').checked || V.PathTool.tool() === 'edit' ? V.PathTool.drawState() : null,
       codeAxes: $('optAxes').checked ? { x: S.start.x, y: S.start.y, h: S.start.h } : null,
+      logs: V.Tune.drawState(simMs, codeToField, S.start.h),
     };
     if (f) {
       state.pose = { x: f.x[idx], y: f.y[idx], h: f.h[idx] };
@@ -661,6 +677,21 @@
     });
     if (saved && saved.project) V.PathTool.load(saved.project);
     else if (!saved) loadExamplePath();
+    V.Tune.init({
+      $,
+      log: addLog,
+      requestDraw,
+      durationChanged: updateScrubMax,
+      result: () => result,
+      settings: () => S,
+      code: () => $('code').value,
+      routine: () => (compiled && compiled.routine) || '',
+      applyRobot: (r) => {
+        Object.assign(S.robot, r);
+        pushSettingsToUi();
+        settingsChanged();
+      },
+    });
     renderer.onImageLoad = requestDraw;
     window.addEventListener('vsim-theme', () => {
       requestDraw();
@@ -779,7 +810,7 @@
       } else if (!typing && e.key === 'Home') {
         $('btnRestart').click();
       } else if (!typing && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
-        simMs = Math.max(0, Math.min(result ? result.durationMs : 0, simMs + (e.key === 'ArrowRight' ? 100 : -100)));
+        simMs = Math.max(0, Math.min(totalMs(), simMs + (e.key === 'ArrowRight' ? 100 : -100)));
         playing = false;
         syncPlayButton();
         requestDraw();
@@ -797,8 +828,8 @@
   }
 
   function togglePlay() {
-    if (!result || !result.frames) return;
-    if (!playing && simMs >= result.durationMs) simMs = 0;
+    if (totalMs() <= 0) return;
+    if (!playing && simMs >= totalMs()) simMs = 0;
     playing = !playing;
     lastTs = 0;
     syncPlayButton();

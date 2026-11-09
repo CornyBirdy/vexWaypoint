@@ -166,3 +166,9 @@ ul.paths:empty::after { content: "none loaded"; color: var(--ink-muted); }
 .credit img { height: 22px; width: auto; opacity: .85; }
 .credit .on-dark { display: var(--logo-on-dark); }
 .credit .on-light { display: var(--logo-on-light); }
+
+/* Tune: real-robot pose logs */
+#runList:empty::after { content: "no runs yet: drop a pose log or paste one above"; }
+#runList .nm { cursor: pointer; }
+#tunePaste { display: block; width: calc(100% - 2 * var(--s-3)); box-sizing: border-box; font-size: 12px; resize: vertical; }
+.readout.tune th { width: 60px; vertical-align: top; }
