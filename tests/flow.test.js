@@ -3,7 +3,7 @@
 'use strict';
 const path = require('path');
 const assert = require('assert');
-for (const f of ['lemlib', 'paths', 'translate', 'editor', 'export', 'codegen', 'sim']) require(path.join('..', 'js', f + '.js'));
+for (const f of ['lemlib', 'templates', 'paths', 'translate', 'editor', 'export', 'codegen', 'sim']) require(path.join('..', 'js', f + '.js'));
 const V = globalThis.VSim;
 const E = V.Editor;
 const G = V.CodeGen;

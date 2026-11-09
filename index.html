@@ -229,7 +229,7 @@
       <summary>Code</summary>
       <div class="props">
         <label class="field"><span>Language</span>
-          <select id="lang"><option value="cpp">C++ (LemLib)</option><option value="js">JavaScript</option></select>
+          <select id="lang"><option value="cpp">C++</option><option value="js">JavaScript</option></select>
         </label>
         <label class="field" id="routineWrap" hidden><span>Routine</span><select id="routine"></select></label>
         <label class="field"><span>Match</span>
@@ -238,10 +238,10 @@
       </div>
       <textarea id="code" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Autonomous code"></textarea>
       <div class="actions">
-        <button id="btnImport" class="btn" type="button" title="Read lemlib::Drivetrain and ControllerSettings from the code above">Import settings from code</button>
+        <button id="btnImport" class="btn" type="button" title="Read lemlib::Drivetrain / ControllerSettings, a JAR-Template Drive or RW-Template settings from the code above">Import settings from code</button>
         <button id="btnTune" class="btn" type="button" title="Measure every motion and set its timeout to the time it needs plus a safety margin">Auto-tune timeouts</button>
       </div>
-      <p class="note">Drivetrain only. Calls on other objects (intake, lift, clamp...) are ignored.</p>
+      <p class="note">Runs LemLib, JAR-Template and RW-Template autons, and PROS / VEXcode drive motors driven directly. Drivetrain only: calls on other objects (intake, lift, clamp...) are ignored and sensors read 0.</p>
     </details>
 
     <details class="sec" data-tab="code">
@@ -345,6 +345,7 @@
 </footer>
 
 <script src="js/lemlib.js"></script>
+<script src="js/templates.js"></script>
 <script src="js/paths.js"></script>
 <script src="js/translate.js"></script>
 <script src="js/editor.js"></script>

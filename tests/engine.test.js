@@ -2,7 +2,7 @@
 'use strict';
 const path = require('path');
 const assert = require('assert');
-for (const f of ['lemlib', 'chassis', 'motors', 'aligners', 'contact', 'paths', 'translate', 'sim', 'autotune']) require(path.join('..', 'js', f + '.js'));
+for (const f of ['lemlib', 'templates', 'chassis', 'motors', 'aligners', 'contact', 'paths', 'translate', 'sim', 'autotune']) require(path.join('..', 'js', f + '.js'));
 const V = globalThis.VSim;
 
 const ROBOT = { wheelDiameter: 3.25, rpm: 450, speedPct: 90, trackWidth: 12, length: 15, width: 15, responseMs: 80 };
@@ -25,6 +25,8 @@ async function run(code, { start = { x: 0, y: 0, h: 0 }, paths = [], language = 
     paths,
     chassisNames: ['chassis', c.config.chassisName],
     motorGroups: c.config.motorGroups || null,
+    motors: c.config.motors,
+    rw: c.config.rw,
     maxMs: 120000,
     realism,
     startFromSetPose,
@@ -458,6 +460,159 @@ const angDiff = (a, b) => Math.abs(normDeg(a - b));
     t = await run('chassis.turnToHeading(180, 4000); chassis.waitUntil(90); chassis.cancelMotion();');
     assert(t.end.h > 85 && t.end.h < 150, 'cancelled mid-turn at ' + t.end.h);
     console.log('ok motion chaining (LemLib v0.5.6 behaviour)');
+  }
+
+  // --- a chained motion takes over the drivetrain in the same tick (no 10 ms with the motors off)
+  {
+    t = await run(`chassis.moveToPoint(0, 24, 3000, {.minSpeed = 100, .earlyExitRange = 4});
+      chassis.moveToPoint(0, 48, 3000, {.minSpeed = 100, .earlyExitRange = 4});
+      chassis.moveToPoint(0, 72, 3000);`, { start: { x: 0, y: -60, h: 0 } });
+    const f = t.res.frames;
+    const gap = f.mi.slice(1, f.mi.indexOf(2) + 1).some((id) => id === -1);
+    assert(!gap, 'no idle tick between chained motions');
+    assert.strictEqual(t.res.motions[0].t1, t.res.motions[1].t0, 'next motion starts the tick the last one exits');
+    console.log('ok chained motions hand over without a dead tick');
+  }
+
+  // --- JAR-Template
+  {
+    const JAR = `
+      Drive chassis(ZERO_TRACKER_NO_ODOM, motor_group(LF, LB), motor_group(RF, RB), PORT1, 3.25, 0.6, 360, PORT1, -PORT2, PORT3, -PORT4, 3, 2.75, -2, 1, -2.75, 5.5);
+      void odom_constants(){ default_constants(); chassis.drive_max_voltage = 8; chassis.drive_settle_error = 3; chassis.boomerang_lead = .5; }
+      void full_test(){
+        chassis.drive_distance(24);
+        chassis.turn_to_angle(-45);
+        chassis.drive_distance(-36);
+        chassis.right_swing_to_angle(-90);
+        chassis.drive_distance(24);
+        chassis.turn_to_angle(0);
+      }
+      void odom_test(){
+        odom_constants();
+        chassis.set_coordinates(0, 0, 0);
+        chassis.turn_to_point(24, 24);
+        chassis.drive_to_point(24, 24);
+        chassis.drive_to_pose(0, 48, 0);
+        chassis.left_swing_to_angle(90);
+      }
+      void chain_test(){
+        chassis.drive_to_point(0, 24, 6, 10, 6);
+        chassis.drive_to_point(0, 48);
+      }`;
+    t = await run(JAR + 'void autonomous(){ full_test(); }');
+    assert.deepStrictEqual(t.c.config.templates, ['JAR-Template']);
+    assert.deepStrictEqual(t.res.motions.map((m) => m.label.split('(')[0]), ['drive_distance', 'turn_to_angle', 'drive_distance', 'right_swing_to_angle', 'drive_distance', 'turn_to_angle']);
+    assert(t.res.motions.every((m) => m.reason === 'settled'), 'every JAR motion settles: ' + t.res.motions.map((m) => m.reason));
+    assert(angDiff(t.end.h, 0) < 2, 'ends facing 0: ' + t.end.h);
+    const f = t.res.frames;
+    const i = f.t.indexOf(t.res.motions[0].t1);
+    near(f.y[i], 24, 1.6, 'drive_distance(24)');
+    t = await run(JAR + 'void autonomous(){ odom_test(); }');
+    const reasons = t.res.motions.map((m) => m.reason);
+    assert(!reasons.includes('timeout'), 'odom test without timeouts: ' + reasons);
+    const ip = t.res.frames.t.indexOf(t.res.motions[2].t1);
+    near(t.res.frames.x[ip], 0, 3.5, 'drive_to_pose x');
+    near(t.res.frames.y[ip], 48, 3.5, 'drive_to_pose y');
+    assert(angDiff(t.end.h, 90) < 3, 'left swing to 90: ' + t.end.h);
+    // drive_min_voltage chains: the first motion ends on the line instead of settling for 300 ms
+    // (with the default drive_kd = 10 the PID brakes near the point, and the min voltage clamps
+    // that to -6 V, so the robot is nearly stopped there, as on a real JAR robot)
+    t = await run(JAR + 'void autonomous(){ chain_test(); }');
+    assert.strictEqual(t.res.motions[0].reason, 'crossed the finish line');
+    near(t.end.y, 48, 3.5, 'chain ends at the second point');
+    const chained = t.res.motions[0].t1;
+    t = await run(JAR + 'void autonomous(){ chassis.drive_to_point(0, 24); chassis.drive_to_point(0, 48); }');
+    assert.strictEqual(t.res.motions[0].reason, 'settled');
+    assert(t.res.motions[0].t1 > chained + 100, `chaining skips the settle time (${chained} vs ${t.res.motions[0].t1} ms)`);
+    // wait(ms, msec) and wait(s, seconds)
+    t = await run('void autonomous(){ wait(250, msec); wait(0.25, seconds); chassis.drive_distance(6); }' + JAR.replace(/void full_test[^]*$/, ''));
+    assert.strictEqual(t.res.motions[0].t0, 500, 'VEXcode waits');
+    console.log('ok JAR-Template');
+  }
+
+  // --- RW-Template
+  {
+    const CFG = `double distance_between_wheels = 12;\ndouble distance_kp = 1.1, distance_ki = 0.1, distance_kd = 7;\ndouble min_output = 10;\n`;
+    t = await run(CFG + `void exampleAuton(){ driveTo(48, 3000); turnToAngle(90, 2000); turnToAngle(180, clockwise, 2000); driveTo(24, 2000); }`);
+    assert.deepStrictEqual(t.c.config.templates, ['RW-Template']);
+    assert.strictEqual(t.c.config.rw.distance_kd, 7);
+    assert.strictEqual(t.c.config.rw.distance_between_wheels, 12);
+    assert(t.res.motions.every((m) => m.reason === 'settled'), 'RW motions settle: ' + t.res.motions.map((m) => m.reason));
+    near(t.end.x, 0, 1.5, 'RW drive/turn x');
+    near(t.end.y, 24, 1.5, 'RW drive/turn y');
+    assert(angDiff(t.end.h, 180) < 2, 'RW turn heading ' + t.end.h);
+    // exit = false: chained, the robot does not stop between moves
+    t = await run(`void a(){ setPose(0, 0, 0); moveToPoint(0, 24, 1, 2000, false); moveToPoint(24, 48, 1, 2000, true); turnToAngle(90, 800, false); turnToAngle(180, 1500); }`);
+    let k = t.res.frames.t.indexOf(t.res.motions[0].t1);
+    // (with the default dir_change_start = dir_change_end = true it slows down but does not stop)
+    assert((t.res.frames.vl[k] + t.res.frames.vr[k]) / 2 > 10, 'exit=false keeps moving');
+    assert.strictEqual(t.res.motions[2].reason, 'reached');
+    near(t.res.frames.y[t.res.frames.t.indexOf(t.res.motions[1].t1)], 48, 2, 'second point reached');
+    assert(angDiff(t.end.h, 180) < 2, 'RW chained turn heading ' + t.end.h);
+    // boomerang and swing
+    t = await run(`void a(){ boomerang(24, 36, 1, 90, 0.4, 3000); swing(0, 1, 2000); }`);
+    assert(!t.res.motions.some((m) => m.reason === 'timeout'), 'boomerang/swing: ' + t.res.motions.map((m) => m.reason));
+    // RW's boomerang (exit = true) stops once it is within 5 in of the target
+    const bi = t.res.frames.t.indexOf(t.res.motions[0].t1);
+    assert.strictEqual(t.res.motions[0].reason, 'close enough');
+    assert(Math.hypot(t.res.frames.x[bi] - 24, t.res.frames.y[bi] - 36) < 5.5, 'boomerang ends near the target');
+    // runAsync + waitUntilTraveled + waitForMotion; correct_angle is shared with the code
+    t = await run(`void a(){
+      runAsync([]{ moveToPoint(0, 48, 1, 3000); turnToAngle(90, 1500); });
+      waitUntilTraveled(12);
+      double when = pros::millis();
+      intake.move(127);
+      waitForMotion();
+      correct_angle = 90;
+      driveTo(12, 2000);
+    }`);
+    assert.deepStrictEqual(t.res.motions.map((m) => m.label.split('(')[0]), ['moveToPoint', 'turnToAngle', 'driveTo']);
+    near(t.end.x, 12, 1.5, 'drives on after the async motions');
+    assert(t.res.motions[2].t0 >= t.res.motions[1].t1, 'waitForMotion waited');
+    // paths
+    t = await run(`void a(){ setPose(0, 0, 0); Path p = pathFromPoints({{0, 0}, {0, 24}, {24, 48}}); followPath(p, 5000); }`);
+    assert.strictEqual(t.res.motions[0].reason, 'reached end');
+    near(t.end.x, 24, 2.5, 'followPath end x');
+    near(t.end.y, 48, 2.5, 'followPath end y');
+    console.log('ok RW-Template');
+  }
+
+  // --- PROS / VEXcode drive motors driven directly
+  {
+    t = await run(`pros::MotorGroup left_mg({1, -2, 3}, pros::MotorGearset::blue);
+      pros::MotorGroup right_mg({-4, 5, -6}, pros::MotorGearset::blue);
+      pros::Motor lb(7);
+      void autonomous(){
+        left_mg.move(127); right_mg.move(127); lb.move(127);
+        pros::delay(500);
+        left_mg.brake(); right_mg.brake();
+        pros::delay(500);
+        left_mg.tare_position();
+        left_mg.move_relative(-720, 600); right_mg.move_relative(-720, 600);
+        while (left_mg.get_position() > -715) pros::delay(10);
+      }`);
+    assert.deepStrictEqual(t.c.config.motors.map((m) => m.name + m.side + m.gearRpm), ['left_mgL600', 'right_mgR600']);
+    assert(t.c.config.templates.includes('PROS motors'));
+    const f = t.res.frames;
+    const yAt = (ms) => f.y[f.t.indexOf(ms)];
+    const top = (ROBOT.rpm / 60) * Math.PI * ROBOT.wheelDiameter * ROBOT.speedPct / 100;
+    assert(yAt(500) > top * 0.5 * 0.7 && yAt(500) < top * 0.5, 'half a second at full power: ' + yAt(500));
+    // 720 motor degrees on a 600 rpm cartridge, 450 rpm wheels: 2 * 0.75 turns of a 3.25 in wheel
+    near(yAt(1000) - t.end.y, 2 * 0.75 * Math.PI * 3.25, 0.6, 'move_relative distance');
+    t = await run(`motor LeftFront = motor(PORT1, ratio6_1, true);
+      motor RightFront = motor(PORT3, ratio6_1, false);
+      motor_group LeftDrive = motor_group(LeftFront);
+      motor_group RightDrive = motor_group(RightFront);
+      void autonomous(void){
+        LeftDrive.spin(forward, 6, volt); RightDrive.spin(reverse, 6, volt);
+        wait(300, msec);
+        LeftDrive.stop(); RightDrive.stop();
+        LeftDrive.spinFor(forward, 1, turns, false);
+        RightDrive.spinFor(forward, 1, turns);
+      }`);
+    assert(t.c.config.templates.includes('VEXcode motors'));
+    assert(t.end.h > 30, 'spun right: ' + t.end.h);
+    console.log('ok PROS / VEXcode motors');
   }
 
   // --- errors surface, never hang

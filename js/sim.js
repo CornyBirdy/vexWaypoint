@@ -179,6 +179,9 @@
       // statistics for the run log
       this.slipDist = 0; // inches the wheels turned without the robot moving with them
       this.maxSlide = 0; // fastest sideways slide, in / s
+      this.sL = 0; // wheel travel (inches, like a drive encoder: it counts wheelspin)
+      this.sR = 0;
+      this.traveled = 0; // path length driven (inches)
       this.resetOdometry();
     }
     /** odometry restarts at the real pose (setPose); the gyro itself keeps its drift */
@@ -205,6 +208,8 @@
       }
       const world = this.world;
       const mm = p.motorModel || null;
+      const tx0 = this.x;
+      const ty0 = this.y;
       for (let i = 0; i < SUBSTEPS; i++) {
         if (mm) {
           // motor model: the wheel speed follows from the motors' torque, the gearing, the weight and the rolling resistance
@@ -214,6 +219,8 @@
           this.vL += ((this.cmdL / 127) * this.vmax - this.vL) * alpha;
           this.vR += ((this.cmdR / 127) * this.vmax - this.vR) * alpha;
         }
+        this.sL += this.vL * dt;
+        this.sR += this.vR * dt;
         if (!re && !world) {
           const v = (this.vL + this.vR) / 2;
           const w = (this.vL - this.vR) / p.trackWidth; // rad/s, clockwise positive
@@ -320,6 +327,7 @@
         this.sy += Math.cos(shm) * dF - Math.sin(shm) * dS;
         this.sh = shNew;
       }
+      this.traveled += Math.hypot(this.x - tx0, this.y - ty0);
     }
     collideWalls() {
       const L = this.p.length / 2;
@@ -601,6 +609,9 @@
         ch.nextSite = null;
       }
     };
+    // JAR-Template's Drive (snake_case methods and public members such as drive_max_voltage)
+    const jarState = Object.assign({}, NS.JAR_DEFAULTS, opts && opts.jar);
+    Object.assign(api, NS.makeJarApi(ch, jarState));
     // anything else on chassis (e.g. setBrakeMode variants) is ignored
     const chassisObj = new Proxy(api, {
       get: (t, k) => {
@@ -608,9 +619,17 @@
           const m = /^(\w+)__S(\d+)$/.exec(k);
           if (m && TIMEOUT_ARG[m[1]] !== undefined && m[1] in t) return siteCall(m[1], +m[2]);
         }
-        return k in t ? t[k] : k === 'then' ? undefined : NOOP;
+        return k in t ? t[k] : k in jarState ? jarState[k] : k === 'then' ? undefined : NOOP;
+      },
+      set: (t, k, v) => {
+        if (k in jarState) jarState[k] = v;
+        return true;
       },
     });
+
+    // RW-Template's free functions and settings
+    const rwSettings = Object.assign({}, NS.RW_DEFAULTS, opts && opts.rw);
+    const RW = NS.makeRwApi(ch, rwSettings, { log });
 
     const scope = {
       NOOP,
@@ -620,13 +639,13 @@
       // `while (cond) {...}` waiting on something that is not simulated (lift, claw): give up after a while
       __loopStart: (cond, waitOnly) => ({ t0: clock.now, cond, waitOnly: !!waitOnly, warned: false }),
       __stuck: (w) => {
-        if (realWait.test(w.cond)) return false; // real waits on time / the drivetrain
+        if (realWait.test(w.cond) || /isMotionRunning|get_position|position\s*\(|isDone|isSpinning/.test(w.cond)) return false; // real waits on time / the drivetrain
         // a loop that only waits (`while (liftBusy) { delay(20); }`) is waiting on something the sim does
         // not run, so with the default setting (0) it is treated as already finished and costs no time
         const instant = stuckMs === 0 && w.waitOnly;
         const ms = stuckMs > 0 ? stuckMs : DEFAULT_LOOP_WAIT_MS;
         if (!instant) {
-          if (ch.motion) {
+          if (ch.motion || ch.rawPos) {
             w.t0 = clock.now;
             return false;
           }
@@ -666,6 +685,55 @@
       AUTO: 'AUTO', CW_CLOCKWISE: 'CW_CLOCKWISE', CCW_COUNTERCLOCKWISE: 'CCW_COUNTERCLOCKWISE',
       LEFT: 'LEFT', RIGHT: 'RIGHT',
     };
+    Object.assign(scope, {
+      // VEXcode / PROS time and units
+      wait: (t, unit) => clock.sleep(unit === 'sec' ? t * 1000 : unit === 'usec' ? t / 1000 : t),
+      sleep: (ms) => clock.sleep(ms),
+      sleep_for: (ms) => clock.sleep(ms),
+      task_delay: (ms) => clock.sleep(ms),
+      msec: 'msec', sec: 'sec', seconds: 'sec', usec: 'usec',
+      fwd: 'fwd', forward: 'fwd', reverse: 'reverse',
+      volt: 'volt', voltageUnits: { volt: 'volt', mV: 'mV' }, mV: 'mV',
+      pct: 'pct', percent: 'pct', velocityUnits: { pct: 'pct', rpm: 'rpm' }, rpm: 'rpm', dps: 'dps',
+      deg: 'deg', degrees: 'deg', rev: 'rev', turns: 'rev', raw: 'raw',
+      hold: 'hold', coast: 'coast', brake: 'brake',
+      // JAR-Template's constant presets (a definition in your own code replaces these)
+      default_constants: () => Object.assign(jarState, {
+        drive_max_voltage: 10, drive_kp: 1.5, drive_ki: 0, drive_kd: 10, drive_starti: 0,
+        heading_max_voltage: 6, heading_kp: 0.4, heading_ki: 0, heading_kd: 1, heading_starti: 0,
+        turn_max_voltage: 12, turn_kp: 0.4, turn_ki: 0.03, turn_kd: 3, turn_starti: 15,
+        swing_max_voltage: 12, swing_kp: 0.3, swing_ki: 0.001, swing_kd: 2, swing_starti: 15,
+        drive_settle_error: 1.5, drive_settle_time: 300, drive_timeout: 5000,
+        turn_settle_error: 1, turn_settle_time: 300, turn_timeout: 3000,
+        swing_settle_error: 1, swing_settle_time: 300, swing_timeout: 3000,
+      }),
+      odom_constants: () => {
+        scope.default_constants();
+        Object.assign(jarState, { heading_max_voltage: 10, drive_max_voltage: 8, drive_settle_error: 3, boomerang_lead: 0.5, drive_min_voltage: 0 });
+      },
+      // RW-Template
+      ...RW.api,
+      __rw: RW.asyncApi,
+      clockwise: 'clockwise',
+      counterclockwise: 'counterclockwise',
+      shortest: 'shortest',
+      TurnDirection: { clockwise: 'clockwise', counterclockwise: 'counterclockwise', shortest: 'shortest' },
+    });
+    const rwState = RW.rw;
+    scope.__busy = () => rwState.asyncRunning || !!ch.rawPos;
+    Object.defineProperty(scope, 'correct_angle', { get: () => rwState.correct_angle, set: (v) => (rwState.correct_angle = v), enumerable: true });
+    Object.defineProperty(scope, 'x_pos', { get: () => ch.poseRad().x, set: () => {}, enumerable: true });
+    Object.defineProperty(scope, 'y_pos', { get: () => ch.poseRad().y, set: () => {}, enumerable: true });
+    Object.defineProperty(scope, 'motion_running', { get: () => rwState.motion_running || rwState.asyncRunning, set: () => {}, enumerable: true });
+    Object.keys(rwSettings).forEach((k) =>
+      Object.defineProperty(scope, k, { get: () => rwSettings[k], set: (v) => (rwSettings[k] = v), enumerable: true })
+    );
+
+    // drive motors used directly (PROS motor groups, VEXcode motors)
+    ((opts && opts.motors) || []).forEach((mo) => {
+      scope[mo.name] = NS.motorProxy(NS.makeMotor(ch, mo.name, mo.side, mo.gearRpm || 200, clock, log), NOOP);
+    });
+
     chassisNames.forEach((n) => (scope[n] = chassisObj));
     Object.keys(pathLib).forEach((id) => (scope[id] = pathLib[id]));
     // the drivetrain's motor groups (`leftMotors.move(-60)`): open-loop commands, like chassis.tank()
@@ -683,8 +751,9 @@
         };
         return new Proxy(obj, { get: (t, k) => (k in t ? t[k] : k === 'then' ? undefined : NOOP) });
       };
-      if (groups.left) scope[groups.left] = mg('left');
-      if (groups.right) scope[groups.right] = mg('right');
+      // (motors found in the declarations already have the fuller model from js/templates.js)
+      if (groups.left && !(groups.left in scope)) scope[groups.left] = mg('left');
+      if (groups.right && !(groups.right in scope)) scope[groups.right] = mg('right');
     }
 
     scope.__unknownCalls = unknownCalls;
@@ -807,6 +876,9 @@
     let placed = null;
     const scope = buildScope(ch, clock, lib, names, log, {
       mechanismWaitMs: o.mechanismWaitMs,
+      motors: o.motors,
+      rw: o.rw,
+      jar: o.jar,
       motorGroups: o.motorGroups,
       cartridge: o.robot && o.robot.motor ? o.robot.motor.cartridge : 600,
       siteTimeouts: o.siteTimeouts,
@@ -888,12 +960,20 @@
     for (;;) {
       clock.wake();
       await macro();
-      if (codeDone && !ch.motion) break;
+      if (codeDone && !ch.motion && !scope.__busy()) break;
       if (clock.now >= o.maxMs) {
         log('warn', `Stopped: simulation ran for ${o.maxMs / 1000} s without finishing`);
         break;
       }
+      const before = ch.motion;
       ch.step();
+      if (before && !ch.motion) {
+        // A motion just ended. On the robot a queued (chained) motion takes over the drivetrain at
+        // once, so let the waiting code start it and run its first pass in this same tick instead of
+        // coasting for 10 ms with the motors at 0.
+        await macro();
+        if (ch.motion && ch.motion !== before) ch.step();
+      }
       robot.step(TICK_MS);
       clock.now += TICK_MS;
       if (ch.motion && robot.touching) {

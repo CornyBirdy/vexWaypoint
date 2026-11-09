@@ -9,7 +9,7 @@
 </p>
 
 **Waypoint** is a drivetrain-only autonomous simulator for the **VEX V5 Override** field.
-It runs your **LemLib** auton code (C++ or JavaScript), follows **path.jerryio** files, and lets you scrub the result on a timeline.
+It runs your auton code, written with **LemLib**, **JAR-Template**, **RW-Template**, or plain **PROS / VEXcode** motor commands (C++, or JavaScript for LemLib), follows **path.jerryio** files, and lets you scrub the result on a timeline.
 
 It includes a **path editor** ported from [path.jerryio](https://github.com/Jerrylum/path.jerryio), so you can draw and tune paths right on the field, and its Override field pictures. Because of that this project is licensed **GPL-3.0** (see `LICENSE` and `NOTICE.md`).
 
@@ -96,9 +96,32 @@ Supported files: LemLib v0.4 text (with the ghost point), LemLib Tarball v0.5 an
 
 ### Supported code
 
+The sim works out which style your code uses and says so in the run log ("Code style: JAR-Template"). You can mix them.
+
+#### LemLib
+
 LemLib 0.5-style calls, with LemLib's blocking rules (`async` defaults to `true`, and starting a new motion waits for the previous one to finish):
 
 `setPose` `getPose` `resetLocalPosition` `calibrate` `moveToPoint` `moveToPose` `turnToHeading` `turnToPoint` `swingToHeading` `swingToPoint` `follow` `waitUntil` `waitUntilDone` `cancelMotion` `cancelAllMotions` `isInMotion`, plus the `lemlib` helpers `Pose` (with `distance`, `angle`, `lerp`, `rotate`), `slew`, `sanitizeAngle`, `angleError`, `avg`, `ema`, `getCurvature`, `Timer` and `PID`, plus `pros::delay`, `pros::millis`, designated-initialiser params (`{.forwards = false, .maxSpeed = 80}`), `lemlib::DriveSide::LEFT`, `lemlib::AngularDirection::CW_CLOCKWISE`, simple `int / float / bool` variables, `if`, `for`, `while`, and several `void name()` routines (pick one in the **Routine** menu).
+
+#### JAR-Template
+
+`chassis.drive_distance` `turn_to_angle` `left_swing_to_angle` `right_swing_to_angle` `turn_to_point` `drive_to_point` `drive_to_pose` (all overloads), `set_coordinates` `set_heading` `get_X_position` `get_Y_position` `get_absolute_heading` `drive_with_voltage`, the `set_*_constants` / `set_*_exit_conditions` setters and members such as `chassis.drive_max_voltage = 8;` or `chassis.boomerang_lead = .5;`. VEXcode's `wait(200, msec)`, `wait(1, seconds)`, `task::sleep(10)` and `waitUntil(...)` work too.
+Before your routine runs, the constants are the ones a fresh JAR-Template project sets in `default_constants()`; `default_constants()` and `odom_constants()` are built in, and your own definitions replace them if you paste them.
+Chaining with `drive_min_voltage` (ending on the line through the target instead of settling) behaves as in JAR-Template. Like the original, JAR motions leave the motors at their last voltage when they end.
+`holonomic_drive_to_pose` is run as turn + drive + turn, because the sim is a tank drive.
+
+#### RW-Template
+
+`driveTo` `turnToAngle` (also with `clockwise` / `counterclockwise`) `turnToPoint` `moveToPoint(x, y, dir, ...)` `boomerang` `curveCircle` `swing` `setPose` `driveChassis` `stopChassis`, chaining with `exit = false`, `runAsync([]{ ... })`, `waitUntilTraveled` `waitUntilTurned` `waitUntilNear` `waitForMotion` `cancelMotion` `isMotionRunning`, `x_pos` `y_pos` `correct_angle`, plus `driveProfiled` `turnProfiled` `followPath` `followPathRamsete` with `pathFromPoints({{x, y}, ...})` (or a loaded jerry.io path).
+Paste your `robot-config.cpp` (or `rw-config.cpp` on PROS) along with `autonomous.cpp` and its settings (`distance_kp`, `turn_kp`, `heading_correction_kp`, `min_output`, slew limits, `dir_change_start` / `dir_change_end`, `chase_power`, profile and path settings) are used. Without it, the template's defaults are.
+
+#### PROS / VEXcode motors
+
+Autons that drive the drive motors directly, with no library: PROS `pros::MotorGroup` / `pros::Motor` (`move`, `move_voltage`, `move_velocity`, `brake`, `move_relative`, `move_absolute`, `get_position`, `tare_position`) and VEXcode `motor` / `motor_group` (`spin(forward, 6, volt)`, `stop`, `setVelocity`, `spinFor(forward, 2, turns)`, `spinToPosition`, `position`, `resetPosition`). LemLib's `chassis.tank()` / `arcade()` drive too.
+The sim takes the motors from your declarations: the ones in your `lemlib::Drivetrain` or JAR `Drive`, otherwise motors called `left...` / `right...` (or `lf`, `rb`, `L1`... when nothing is called left / right). Their cartridge (blue / green / red, `ratio6_1`...) and the drivetrain's wheel RPM turn motor degrees into wheel travel. Each drive command shows in the run log.
+
+#### Pasting whole files
 
 You can paste your **whole `main.cpp`**: the sim finds `autonomous()` (or the first routine with "auto" in its name), runs it, and ignores `initialize()`, `opcontrol()` and the rest. Other `void` functions with a body become helpers you can call (with arguments and default values), and `enum`s, `#define NAME value` and simple global constants are understood. If the file has several routines, pick one in the **Routine** menu; the run log says which one ran and which functions were ignored.
 
@@ -109,10 +132,12 @@ You can also paste just a **list of statements** (no `void autonomous() { ... }`
 **Open-loop driving.** A helper that drives the motors directly (`backUp()`, `driveToGoal()`, pushing into a goal) is simulated: `chassis.tank(l, r)`, `chassis.arcade(throttle, turn)`, `chassis.curvature(throttle, turn)` and the drivetrain's motor groups (`leftMotors.move(v)`, `move_voltage`, `move_velocity`, `brake`; the names are read from your `lemlib::Drivetrain(&leftMotors, &rightMotors, ...)` line, so paste it with the helper) set the wheel speeds until the next command, and `pros::delay()` makes them last. While a LemLib motion is running it owns the motors, so a `tank()` made then is ignored. `arcade` / `curvature` are close approximations of LemLib's drive curves.
 **Helpers in a header** (for example `resetAtGoalA()` from a `goal_reset.hpp`): `#include` lines are not followed, so paste the header's contents above your `main.cpp` (or above the routine). Plain-data `struct`s work (`struct Goal { float x; float y; }; inline constexpr Goal GOAL = {30.0f, 20.0f};`, `last = {true, x, y};`, `Goal g = {.y = 9};`), as do C casts such as `(uint32_t)x` and `pros::Task([]() {...})` (its body is skipped). `printf` understands flags and widths (`%+.2f`, `%05.1f`, `%-6d`).
 
-Anything on other objects (`intake.move(127)`, `clamp.set_value(true)`, `pros::lcd::print(...)`, ...) is ignored, and lambdas / `pros::Task` bodies are skipped.
+Anything on other objects (`intake.move(127)`, `clamp.set_value(true)`, `pros::lcd::print(...)`, ...) is ignored, and lambdas / `pros::Task` bodies are skipped (except the ones given to RW-Template's `runAsync`).
 It is a small translator, **not a C++ compiler**: classes, templates and pointer tricks are not supported. If a helper function cannot be translated you get a warning and calls to it are ignored; if the routine itself cannot be parsed the run log points at the line that probably caused it.
 
-**Import drivetrain & gains from code** copies the numbers from your `lemlib::Drivetrain`, `lemlib::ControllerSettings` and odometry setup (`lemlib::TrackingWheel` offsets and the `lemlib::OdomSensors` line: forward / sideways tracking wheels and the IMU) into the sim settings and the Chassis panel. The `lemlib::Omniwheel` constants use the diameters from the LemLib docs (for example `OLD_4` is 4.18 in). The LemLib tuning card holds the PID values, exit conditions and slew.
+Sensors (distance, optical, rotation...) all read 0, so code that waits on a sensor carries on at once.
+
+**Import drivetrain & gains from code** copies the numbers from a JAR-Template `Drive chassis(...)` or RW-Template's `distance_between_wheels` / `wheel_distance_in` / `drive_motor_rpm`, and from your `lemlib::Drivetrain`, `lemlib::ControllerSettings` and odometry setup (`lemlib::TrackingWheel` offsets and the `lemlib::OdomSensors` line: forward / sideways tracking wheels and the IMU) into the sim settings and the Chassis panel. The `lemlib::Omniwheel` constants use the diameters from the LemLib docs (for example `OLD_4` is 4.18 in). The LemLib tuning card holds the PID values, exit conditions and slew.
 
 The sim warns in the run log when `turnToPoint` / `swingToPoint` aims at a point within 10 in of the robot (LemLib's docs advise against it). Not simulated: `ExpoDriveCurve`, `setBrakeMode`, the public `lateralPID` / `angularPID` members, and arithmetic on poses (`a + b`, `a * 2`).
 
@@ -132,6 +157,7 @@ Video tracking (a camera as an independent check on odometry) is planned. See [d
 ## Things to know (accuracy)
 
 * **LemLib behaviour** is a port of the **LemLib v0.5.6** source (PID, exit conditions, `moveToPoint`, `moveToPose`, turns, swings, `follow`, the motion queue and `minSpeed` / `earlyExitRange` chaining), so parameters behave as they do on the robot, including its quirks. For example, in v0.5.6 a `moveToPose` chain with a small `earlyExitRange` exits when the robot gets within 7.5 in of the target, and with a larger one it never takes the early exit and settles instead. The motors are modelled simply, so timing will not match a real robot exactly.
+* **JAR-Template and RW-Template** are ports of their sources (the motion functions, their PID classes, exit conditions and chaining), so tuning values behave as they do on the robot. RW-Template's `driveProfiled`, `turnProfiled`, `followPath` and `followPathRamsete` use the same profiles, path splines and pure pursuit, but the sim's motors are ideal, so the feedforward model is skipped and RAMSETE is run as pure pursuit; the run log says so when you use them.
 * **Physics** is a differential drive: wheel speed follows the motor command with a first-order lag ("motor response"). The robot is a rigid body that hits the field walls and the goals (next bullet).
 * **Motors and weight** (*Motors and weight* under Drivetrain; untick the box to type the speed and response in by hand). Give the number of **11 W** and of **5.5 W** motors on each side; their forces add, so 2.5 "motors" a side (two 11 W + one 5.5 W, the 55 W drive) works. All motors are geared so that, unloaded, they turn the wheel at the wheel RPM (a 5.5 W motor's fixed ~200 rpm is geared up to a faster wheel, which costs it torque). A 5.5 W motor is **not exactly half** an 11 W one: from VEX's figures (0.5 N m stall at ~200 rpm against 1.05 N m for an 11 W motor on the 200 rpm cartridge) it makes about 48% of the torque, and the run log / readout says so. Each side of the drivetrain is a DC motor model with a current limit: at the (sagged) battery voltage and the shaft speed a motor draws `(V - Ke w) / R` amps, capped at the current limit, and makes torque `Kt x current`. That goes through the gearing (cartridge rpm / wheel rpm) to the wheel and pushes the robot's mass against the rolling resistance of its wheels (omni 0.035, traction 0.055 on foam). From that the sim gets the **real-life speed** (where push equals resistance, for example 94% for six 11 W blue-cartridge motors on a 5.5 kg robot), the **motor response** (a heavier robot or fewer motors accelerate slower) and how hard it can push. The floor grip (above) still limits acceleration if it is lower. A lower current limit or more weight slow the robot. The battery is taken as 11.6 V under load (not shown; `volts` in `js/motors.js`). The 11 W / 5.5 W figures (editable under *Motor current figures*) are typical: VEX publishes the stall torque (2.1 N m on the 100 rpm cartridge; 0.5 N m for the 5.5 W motor) and the 2.5 A limit, and the true stall and free current (about 4.7 A and 0.14 A) come from a community fit on the VEX Forum, not from your motors.
 * **Auto-tune timeouts** (*Auto-tune timeouts* under the code box). Runs your auton with long timeouts to see how long each motion needs, then picks a timeout per call: the measured time plus a safety margin (default 20% + 150 ms, rounded up to 50 ms). A motion that hits a wall or goal and can never reach its target gets a timeout a little after it hit (default +400 ms), or a little after an aligner caught the goal (+200 ms), so it can square up but does not push in for long. It then runs the tuned code again to check (tighter timeouts change what happens next) and, with real-life error on, repeats this over a few random draws and keeps the longest timeout each call needed. You get a table (line, call, your timeout, measured, new timeout, why) and a copy of your code with the numbers put in, ready to copy or use in the editor. Only plain numbers can be replaced; a timeout written as a variable or an expression is measured and shown but you change it by hand.
@@ -171,6 +197,7 @@ js/chassis.js                   wheel layout -> grip, scrub, odometry; chassis d
 js/aligners.js                  aligner shapes (lines, arcs, circles), materials, alignment point
 js/contact.js                   solid goals + walls: rigid-body contact physics
 js/sketch.js                    the aligner sketch editor (dialog)
+js/templates.js                 JAR-Template, RW-Template, PROS / VEXcode drive motors
 js/sim.js                       physics (incl. gyro drift + wheel slip), virtual clock, runs your code
 js/translate.js                 C++ -> JS translator
 js/paths.js                     jerry.io file parsing + speed profile

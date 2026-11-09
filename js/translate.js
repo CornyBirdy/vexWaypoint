@@ -198,7 +198,7 @@
   /** top-level functions: `void name(...) { ... }` */
   function findFunctions(src) {
     const funcs = [];
-    const re = /\b(?:void|int|auto)\s+([A-Za-z_]\w*)\s*\(([^()]*)\)\s*\{/g;
+    const re = /\b(?:void|int|auto|double|float|bool|long)\s+([A-Za-z_]\w*)\s*\(([^()]*)\)\s*\{/g;
     let m;
     let from = 0;
     while ((m = re.exec(src))) {
@@ -286,7 +286,114 @@
     // chassis(...) not found: fall back on conventional names
     if (!cfg.lateral && settings.lateral_controller) cfg.lateral = settings.lateral_controller;
     if (!cfg.angular && settings.angular_controller) cfg.angular = settings.angular_controller;
+
+    // JAR-Template: Drive chassis(setup, motor_group(L...), motor_group(R...), gyro, wheel_diameter, wheel_ratio, ...)
+    const reJar = /\bDrive\s+(\w+)\s*\(/.exec(clean);
+    if (reJar) {
+      const open = reJar.index + reJar[0].length - 1;
+      const close = matchBracket(clean, open);
+      if (close > 0) {
+        cfg.chassisName = reJar[1];
+        const a = splitTopLevel(clean.slice(open + 1, close));
+        cfg.jarDrive = { left: motorList(a[1]), right: motorList(a[2]), wheelDiameter: numArg(a[4]), wheelRatio: numArg(a[5]) };
+      }
+    }
     return cfg;
+  }
+
+  /** `motor_group(LF, LB)` / `{&a, &b}` -> ['LF', 'LB'] */
+  function motorList(s) {
+    if (!s) return [];
+    const m = /\(([^]*)\)\s*$/.exec(s.trim());
+    return splitTopLevel(m ? m[1] : s.replace(/^[{&\s]+|[}\s]+$/g, '')).map((x) => x.replace(/^[&*\s]+/, '').trim()).filter((x) => /^[A-Za-z_]\w*$/.test(x));
+  }
+
+  const GEARS = [
+    [/ratio6_1|blue|_06\b|600/i, 600],
+    [/ratio18_1|green|_18\b|200/i, 200],
+    [/ratio36_1|red|_36\b|100/i, 100],
+  ];
+  const gearOf = (s) => {
+    for (const [re, rpm] of GEARS) if (re.test(s || '')) return rpm;
+    return 0;
+  };
+
+  /**
+   * Drive motors that the code may drive directly: PROS `pros::MotorGroup left_mg({1, -2})`,
+   * `pros::Motor lf(1)`, VEXcode `motor LF = motor(PORT1, ratio6_1, false)`,
+   * `motor_group LeftDrive = motor_group(LF, LB)`. Which side each is on comes from the
+   * lemlib::Drivetrain / JAR Drive / RW-Template declarations, else from the name ("left...").
+   */
+  function findDriveMotors(clean, cfg) {
+    const decls = [];
+    const re = /\b(?:pros::)?(?:v5::)?(Motor_Group|MotorGroup|Motor|motor_group|motor)\s+([A-Za-z_]\w*)\s*(=\s*(?:pros::)?(?:v5::)?\w+\s*\(|\(|\{)/g;
+    let m;
+    while ((m = re.exec(clean))) {
+      const open = m.index + m[0].length - 1;
+      const close = matchBracket(clean, open);
+      if (close < 0) continue;
+      decls.push({ type: m[1], name: m[2], args: clean.slice(open + 1, close) });
+    }
+    if (!decls.length) return [];
+    const side = {};
+    const setSide = (names, sd) => names.forEach((n) => (side[n] = sd));
+    // lemlib::Drivetrain dt(&left, &right, ...)
+    const dt = /\bDrivetrain\s+\w+\s*[({]\s*&?\s*(\w+)\s*,\s*&?\s*(\w+)/.exec(clean);
+    if (dt) {
+      setSide([dt[1]], 'L');
+      setSide([dt[2]], 'R');
+    }
+    if (cfg.jarDrive) {
+      setSide(cfg.jarDrive.left, 'L');
+      setSide(cfg.jarDrive.right, 'R');
+    }
+    const byName = (n) => {
+      if (/^(?:left|l(?=[A-Z_\d]|f|b|m|t$|eft))|left|_l$|^L(?=\d|F|B|M|_)/i.test(n) && !/right/i.test(n)) return 'L';
+      if (/^(?:right|r(?=[A-Z_\d]|f|b|m|t$))|right|_r$|^R(?=\d|F|B|M|_)/i.test(n)) return 'R';
+      return null;
+    };
+    // short names (lf, lb, L1...) only count when no motor is called "left..." / "right...":
+    // in a code base with left_mg / right_mg, "lb" is more likely a lady-brown arm
+    const strong = decls.some((d) => !side[d.name] && /left|right/i.test(d.name));
+    const out = [];
+    const seen = new Set();
+    // groups first, so their members inherit the group's side
+    decls.sort((a, b) => (/group/i.test(b.type) ? 1 : 0) - (/group/i.test(a.type) ? 1 : 0));
+    decls.forEach((d) => {
+      let sd = side[d.name] || null;
+      if (!sd && dt) return; // a Drivetrain was declared and this motor is not in it
+      if (!sd && !cfg.jarDrive && (!strong || /left|right/i.test(d.name))) sd = byName(d.name);
+      if (!sd) return;
+      side[d.name] = sd;
+      if (/group/i.test(d.type)) motorList('(' + d.args + ')').forEach((n) => side[n] || (side[n] = sd));
+      if (seen.has(d.name)) return;
+      seen.add(d.name);
+      out.push({ name: d.name, side: sd, gearRpm: gearOf(d.args) });
+    });
+    // guessed from names only: it takes a left and a right side to make a drivetrain
+    if (!dt && !cfg.jarDrive && !(out.some((o) => o.side === 'L') && out.some((o) => o.side === 'R'))) return [];
+    // a group's cartridge: from its first member when it does not say
+    out.forEach((o) => {
+      if (o.gearRpm) return;
+      const d = decls.find((x) => x.name === o.name);
+      const first = d && /group/i.test(d.type) ? motorList('(' + d.args + ')')[0] : null;
+      const fd = first && decls.find((x) => x.name === first);
+      o.gearRpm = (fd && gearOf(fd.args)) || 200;
+    });
+    return out;
+  }
+
+  /** numbers like `(36.0 / 48.0) * 3.17 * M_PI` */
+  function evalNumber(expr) {
+    const e = String(expr).replace(/\bM_PI\b/g, String(Math.PI)).replace(/(\d)[fF]\b/g, '$1').trim();
+    if (/^(true|false)$/.test(e)) return e === 'true';
+    if (!/^[\d\s.+\-*/()eE]+$/.test(e)) return undefined;
+    try {
+      const v = Function('"use strict"; return (' + e + ');')();
+      return typeof v === 'number' && isFinite(v) ? v : undefined;
+    } catch (err) {
+      return undefined;
+    }
   }
 
   // ---------------------------------------------------------------- body translation
@@ -338,23 +445,93 @@
     return out + s.slice(i);
   }
 
-  /** `[&]() { ... }` lambdas (callbacks, tasks) become a harmless no-op */
+  // RW-Template functions; inside a runAsync() lambda they go through __rw (the async context)
+  const RW_FUNCS = [
+    'driveTo', 'turnToAngle', 'turnToPoint', 'moveToPoint', 'boomerang', 'curveCircle', 'swing', 'driveProfiled',
+    'turnProfiled', 'followPath', 'followPathRamsete', 'waitForMotion', 'waitUntilTraveled', 'waitUntilTurned',
+    'waitUntilNear', 'runAsync', 'cancelMotion', 'isMotionRunning',
+  ];
+  // free functions that take time on the robot, so the translated code must await them
+  const BLOCKING = ['delay', 'wait', 'sleep', 'sleep_for', 'task_delay'].concat(RW_FUNCS.filter((f) => !/^(cancelMotion|isMotionRunning)$/.test(f)));
+  const MOTOR_BLOCKING = ['spinFor', 'spinToPosition', 'rotateFor', 'rotateTo'];
+
+  /**
+   * `[&]() { ... }` lambdas (callbacks, tasks) become a harmless no-op, except the ones handed to
+   * RW-Template's runAsync(), which run in the background like on the robot.
+   */
   function stripLambdas(s) {
     let out = '';
     let i = 0;
-    const re = /\[[&=,\s\w]*\]\s*\(/g;
+    const re = /\[[&=,\s\w]*\]\s*(\()?/g;
     let m;
     while ((m = re.exec(s))) {
-      const open = m.index + m[0].length - 1;
-      const close = matchBracket(s, open);
-      if (close < 0) break;
+      let close = m.index + m[0].length - 1;
+      if (m[1]) {
+        close = matchBracket(s, close);
+        if (close < 0) break;
+      }
       const after = /^\s*(?:mutable\s*)?(?:->\s*[\w:<>*&\s]+?)?\s*\{/.exec(s.slice(close + 1));
       if (!after) continue;
       const bodyOpen = close + after[0].length;
       const bodyClose = matchBracket(s, bodyOpen);
       if (bodyClose < 0) break;
-      out += s.slice(i, m.index) + 'NOOP';
+      if (/\brunAsync\s*\(\s*$/.test(s.slice(0, m.index))) {
+        const body = stripLambdas(s.slice(bodyOpen + 1, bodyClose)).replace(new RegExp('(^|[^.\\w])(' + RW_FUNCS.join('|') + ')\\s*\\(', 'g'), '$1__rw.$2(');
+        out += s.slice(i, m.index) + 'async () => {' + body + '}';
+      } else out += s.slice(i, m.index) + 'NOOP';
       i = bodyClose + 1;
+      re.lastIndex = i;
+    }
+    return out + s.slice(i);
+  }
+
+  /** VEXcode's `waitUntil(cond);` macro (not chassis.waitUntil) -> a polling loop */
+  function waitUntilMacro(s) {
+    let out = '';
+    let i = 0;
+    const re = /(^|[^.\w])waitUntil\s*\(/g;
+    let m;
+    while ((m = re.exec(s))) {
+      const open = m.index + m[0].length - 1;
+      const close = matchBracket(s, open);
+      if (close < 0) break;
+      const semi = /^\s*;/.exec(s.slice(close + 1));
+      out += s.slice(i, m.index) + m[1] + `while (!(${s.slice(open + 1, close)})) { delay(5); }`;
+      i = close + 1 + (semi ? semi[0].length : 0);
+      re.lastIndex = i;
+    }
+    return out + s.slice(i);
+  }
+
+  /** remove `pros::MotorGroup left_mg({1, 2});` style declarations of motors the sim drives */
+  function dropDecls(s, names) {
+    if (!names || !names.length) return s;
+    const re = new RegExp('(^|[;{}\\n])\\s*(?:const\\s+)?[A-Za-z_][\\w:]*\\s+(' + names.join('|') + ')\\s*(?=[=({])', 'g');
+    let out = '';
+    let i = 0;
+    let m;
+    while ((m = re.exec(s))) {
+      const end = s.indexOf(';', m.index + m[0].length);
+      if (end < 0) break;
+      out += s.slice(i, m.index) + m[1];
+      i = end + 1;
+      re.lastIndex = i;
+    }
+    return out + s.slice(i);
+  }
+
+  /** RW-Template `pathFromPoints({{x, y}, ...})`: brace lists -> arrays */
+  function pathBraces(s) {
+    let out = '';
+    let i = 0;
+    const re = /\bpathFromPoints\s*\(/g;
+    let m;
+    while ((m = re.exec(s))) {
+      const open = m.index + m[0].length - 1;
+      const close = matchBracket(s, open);
+      if (close < 0) break;
+      out += s.slice(i, open) + s.slice(open, close + 1).replace(/\{/g, '[').replace(/\}/g, ']');
+      i = close + 1;
       re.lastIndex = i;
     }
     return out + s.slice(i);
@@ -457,8 +634,11 @@
     return clean;
   }
 
-  function translateBody(body, chassisNames, helperNames) {
-    let s = stripLambdas(body);
+  function translateBody(body, chassisNames, helperNames, motorNames) {
+    let s = dropDecls(body, motorNames);
+    s = stripLambdas(s);
+    s = waitUntilMacro(s);
+    s = pathBraces(s);
     s = s.replace(/->/g, '.');
     // enums first, then drop namespaces
     s = s.replace(/\b(?:\w+::)*(?:DriveSide|AngularDirection)::(\w+)/g, '"$1"');
@@ -517,7 +697,9 @@
     // blocking behaviour: every chassis call / delay must be awaited
     const names = chassisNames.join('|');
     s = s.replace(new RegExp('\\b(' + names + ')\\.([A-Za-z_]\\w*)\\s*\\(', 'g'), 'await $1.$2(');
-    s = s.replace(/(^|[^.\w])delay\s*\(/g, '$1await delay(');
+    s = s.replace(new RegExp('(^|[^.\\w])(' + BLOCKING.join('|') + ')\\s*\\(', 'g'), '$1await $2(');
+    s = s.replace(new RegExp('\\b__rw\\.(' + BLOCKING.join('|') + ')\\s*\\(', 'g'), 'await __rw.$1(');
+    s = s.replace(new RegExp('\\b([A-Za-z_]\\w*)\\.(' + MOTOR_BLOCKING.join('|') + ')\\s*\\(', 'g'), 'await $1.$2(');
     if (helperNames && helperNames.length) {
       s = s.replace(new RegExp('(^|[^.\\w])(' + helperNames.join('|') + ')\\s*\\(', 'g'), '$1await $2(');
     }
@@ -526,7 +708,10 @@
   }
 
   // functions that belong to the robot program but are never an autonomous routine
-  const NOT_AUTON = new Set(['initialize', 'opcontrol', 'disabled', 'competition_initialize', 'main', 'on_center_button']);
+  const NOT_AUTON = new Set([
+    'initialize', 'opcontrol', 'disabled', 'competition_initialize', 'main', 'on_center_button',
+    'pre_auton', 'usercontrol', 'vexcodeInit', 'runDriver', 'runPreAutonomous',
+  ]);
 
   function paramNames(params) {
     if (!params || params === 'void') return '';
@@ -585,7 +770,7 @@
     const warnings = [];
     const ignored = [];
     if (opts.language === 'js') {
-      return { js: source, routines: [], routine: '', config: { assets: [], chassisName: 'chassis' }, warnings, ignored };
+      return { js: source, routines: [], routine: '', config: { assets: [], chassisName: 'chassis', motors: [], rw: {}, templates: [] }, warnings, ignored };
     }
     let clean = stripComments(source);
 
@@ -624,13 +809,28 @@
     let globals = clean;
     for (let i = funcs.length - 1; i >= 0; i--) globals = globals.slice(0, funcs[i].start) + globals.slice(funcs[i].end);
     const config = extractConfig(globals);
+    config.motors = findDriveMotors(globals || clean, config);
+    const motorNames = config.motors.map((x) => x.name);
+
+    // RW-Template settings (robot-config.cpp): read here, used by the RW motions
+    const rwNames = new Set(NS.RW_SETTING_NAMES || []);
+    config.rw = {};
+    const reRw = /(?:^|[;}\n,])\s*(?:(?:RW_DEFAULT|const|static|constexpr)\s+)*(?:double|float|int|bool)?\s*([A-Za-z_]\w*)\s*=\s*([^;,{}]+?)(?=\s*[;,])/g;
+    while ((m = reRw.exec(globals))) {
+      if (!rwNames.has(m[1])) continue;
+      const v = evalNumber(m[2]);
+      if (v !== undefined) config.rw[m[1]] = typeof v === 'boolean' ? v : v;
+    }
 
     // simple top-level constants: `const Side SIDE = Side::RIGHT;`, `bool useClamp = true;`
     const reConst = /(?:^|[;}\n])\s*(?:(?:const|static|constexpr|inline|volatile|unsigned|signed)\s+)*([A-Za-z_][\w:]*(?:<[^>;]*>)?)[&*]*\s+([A-Za-z_]\w*)\s*=\s*([^;(){}]+);/g;
-    while ((m = reConst.exec(globals))) {
-      if (KEYWORDS.has(m[1]) || m[1] === 'ASSET') continue;
+    // (a bare list of statements declares its own variables in the body)
+    while (funcs.length && (m = reConst.exec(globals))) {
+      if (KEYWORDS.has(m[1]) || m[1] === 'ASSET' || m[1] === 'using' || m[1] === 'typedef') continue;
+      if (rwNames.has(m[2])) continue; // the sim owns these (see config.rw)
       prelude += `let ${m[2]} = ${translateExpr(m[3])};\n`;
     }
+    config.templates = detectTemplates(clean, config);
 
     // global variables of a struct type: `inline constexpr Goal GOAL_A = {24, 15.55};`, `ResetDebug last;`
     Object.keys(STRUCTS).forEach((S) => {
@@ -644,7 +844,7 @@
 
     if (!funcs.length) {
       // a bare list of statements
-      return { js: prelude + translateBody(clean, names, []), routines: [], routine: '', config, warnings, ignored };
+      return { js: prelude + translateBody(clean, names, [], motorNames), routines: [], routine: '', config, warnings, ignored };
     }
 
     let pick = opts.routine && candidates.find((f) => f.name === opts.routine);
@@ -660,7 +860,7 @@
     let defs = '';
     const usable = [];
     helpers.forEach((f) => {
-      const def = `async function ${f.name}(${paramNames(f.params)}) {\n${translateBody(f.body, names, helperNames)}\n}\n`;
+      const def = `async function ${f.name}(${paramNames(f.params)}) {\n${translateBody(f.body, names, helperNames, motorNames)}\n}\n`;
       const err = parses(def);
       if (err) {
         warnings.push(`${f.name}() could not be translated (${err}); calls to it are ignored.`);
@@ -672,8 +872,21 @@
     });
     NOT_AUTON.forEach((n) => funcs.some((f) => f.name === n) && ignored.push(n));
 
-    const body = translateBody(pick.body, names, usable);
+    const body = translateBody(pick.body, names, usable, motorNames);
     return { js: prelude + defs + body, routines, routine: pick.name, config, warnings, ignored };
+  }
+
+  /** which libraries / styles the code uses, for the run log */
+  function detectTemplates(clean, config) {
+    const t = [];
+    if (/\.\s*(?:moveToPoint|moveToPose|turnToHeading|swingToHeading|swingToPoint|follow)\s*\(|lemlib::/.test(clean)) t.push('LemLib');
+    if (config.jarDrive || /\.\s*(?:drive_distance|turn_to_angle|drive_to_point|drive_to_pose|left_swing_to_angle|right_swing_to_angle|set_coordinates)\s*\(/.test(clean)) t.push('JAR-Template');
+    if (/(?:^|[^.\w])(?:driveTo|turnToAngle|boomerang|curveCircle|runAsync|driveProfiled|turnProfiled|followPath)\s*\(|(?:^|[^.\w])moveToPoint\s*\([^;]*,\s*-?1\s*,/.test(clean)) t.push('RW-Template');
+    if (config.motors && config.motors.length) {
+      const usedRaw = config.motors.some((mo) => new RegExp('\\b' + mo.name + '\\s*\\.\\s*(?:move|move_voltage|move_velocity|move_relative|move_absolute|spin|spinFor|spinToPosition|rotateFor)\\s*\\(').test(clean));
+      if (usedRaw) t.push(/\bpros::/.test(clean) ? 'PROS motors' : 'VEXcode motors');
+    }
+    return t;
   }
 
   /** lines of translated code that do not parse on their own (a hint for where a syntax error is) */
