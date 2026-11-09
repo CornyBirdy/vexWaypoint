@@ -116,6 +116,19 @@ It is a small translator, **not a C++ compiler**: classes, templates and pointer
 
 The sim warns in the run log when `turnToPoint` / `swingToPoint` aims at a point within 10 in of the robot (LemLib's docs advise against it). Not simulated: `ExpoDriveCurve`, `setBrakeMode`, the public `lateralPID` / `angularPID` members, and arithmetic on poses (`a + b`, `a * 2`).
 
+## Tuning against the real robot
+
+The **Real runs** tab loads pose logs recorded on the robot (`include/pose_log.hpp` in Invictus-v2) and puts them next to the sim.
+
+1. Run the auton on the robot. The robot logs its odometry pose, whether a LemLib motion is running, and the drive voltages every 10ms.
+2. Get the log. Either take `plogNNN.csv` off the brain's microSD card, or (no card needed) run `pros terminal > run1.txt` over USB before the run and stop it after `#POSELOG END` prints. Other `printf` output in the file is ignored.
+3. Drop the file anywhere on the page, or paste the terminal text into the box. Load the same auton in **Code** so the sim runs it too.
+4. The field shows the real path as a solid line, and an outline robot follows the timeline. The tab lists how far the real run was from the sim, the worst overshoot on drives and turns, and a drivetrain fit.
+5. **Fit sim to run** sets *Real-life speed* and *Motor response* from the log (and turns off *work out the real-life speed*, so the measured numbers stay). Then the sim moves like your robot. Do this once with a good battery, and new autons drawn in the sim will have realistic timing.
+6. **Copy report for Claude** copies a markdown report: per-motion overshoot, rise and settle times, pose when each sim motion ended vs the real robot, the trajectory every 100 ms, and the code. Paste it into Claude Code in the Invictus-v2 repo. Its `waypoint-tune` skill reads the report and changes the auton or PID values.
+
+Video tracking (a camera as an independent check on odometry) is planned. See [docs/video-tracking.md](docs/video-tracking.md).
+
 ## Things to know (accuracy)
 
 * **LemLib behaviour** is a port of the **LemLib v0.5.6** source (PID, exit conditions, `moveToPoint`, `moveToPose`, turns, swings, `follow`, the motion queue and `minSpeed` / `earlyExitRange` chaining), so parameters behave as they do on the robot, including its quirks. For example, in v0.5.6 a `moveToPose` chain with a small `earlyExitRange` exits when the robot gets within 7.5 in of the target, and with a larger one it never takes the early exit and settles instead. The motors are modelled simply, so timing will not match a real robot exactly.
@@ -164,6 +177,7 @@ js/paths.js                     jerry.io file parsing + speed profile
 js/editor.js, js/export.js      path editor model, jerry.io-compatible export
 js/codegen.js                   the ASSET / follow code for a path, and adding it to your code
 js/pathtool.js                  path editing UI (field clicks, speed graph, list)
+js/tune.js                      Real runs tab: parse robot pose logs, compare with the sim, fit, report
 assets/field/                   Override field pictures (from path.jerryio)
 assets/waypoint-logo.webp       the logo (README banner, start-up splash)
 js/render.js                     canvas drawing (field picture, paths, robot)
@@ -172,6 +186,8 @@ examples/                       example.txt, example.jerryio, example_auton.cpp
 rack.json, run-sim.bat, setup.bat, start.bat, serve.py, serve.ps1
 tests/engine.test.js            node tests/engine.test.js
 tests/editor.test.js            node tests/editor.test.js
+tests/tune.test.js              node tests/tune.test.js
+docs/video-tracking.md          plan for camera tracking
 tests/flow.test.js              node tests/flow.test.js (path -> generated code -> sim)
 tools/make-examples.js          regenerates examples/ and js/examples.js
 tools/make-changelog.js         regenerates js/changelog.js from CHANGELOG.md

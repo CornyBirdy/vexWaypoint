@@ -90,6 +90,7 @@
       if (s.edit) this.drawEdit(ctx, s.edit);
       if (s.followPath) this.drawPolyline(ctx, s.followPath, C.guide, 2.5, false);
       if (s.trail && s.trail.length > 1) this.drawPolyline(ctx, s.trail, C.trail, 2, false);
+      if (s.logs) this.drawLogs(ctx, s.logs, s.robot);
       if (s.goalBoxes) this.drawGoalBoxes(ctx, s.goalBoxes);
       if (s.ghost) this.drawRobot(ctx, s.ghost, s.robot, { ghost: true, handle: s.ghostHandle, aligners: s.aligners });
       if (s.aim && isFinite(s.aim.x)) this.drawAim(ctx, s.aim);
@@ -357,6 +358,26 @@
     }
 
     /** code-frame axes drawn at the start pose */
+    /** real-robot pose logs (Real runs tab): a solid line each, plus an outline robot for the selected one */
+    drawLogs(ctx, logs, dims) {
+      logs.forEach((l) => this.drawPolyline(ctx, l.points, l.color, l.selected ? 2.5 : 1.5, false));
+      logs.forEach((l) => {
+        if (!l.pose) return;
+        const S = this.scale;
+        ctx.save();
+        ctx.translate(this.wx(l.pose.x), this.wy(l.pose.y));
+        ctx.rotate((l.pose.h * Math.PI) / 180);
+        ctx.strokeStyle = l.color;
+        ctx.lineWidth = 2;
+        ctx.strokeRect((-dims.width / 2) * S, (-dims.length / 2) * S, dims.width * S, dims.length * S);
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(0, (-dims.length / 2) * S);
+        ctx.stroke();
+        ctx.restore();
+      });
+    }
+
     drawCodeAxes(ctx, a) {
       const len = 12 * this.scale;
       ctx.save();

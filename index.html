@@ -112,6 +112,7 @@
       <button class="tab" type="button" role="tab" data-tab="aligners">Aligners and errors</button>
       <button class="tab" type="button" role="tab" data-tab="paths">Paths</button>
       <button class="tab" type="button" role="tab" data-tab="code">Code</button>
+      <button class="tab" type="button" role="tab" data-tab="real">Real runs</button>
       <button class="tab" type="button" role="tab" data-tab="all">Everything</button>
     </nav>
     <div class="panes" id="panes">
@@ -249,6 +250,22 @@
       <h3>Angular</h3><div class="props" id="formAng"></div>
     </details>
 
+    <details class="sec" data-tab="real" open>
+      <summary>Real runs <span class="aside" id="botCount"></span></summary>
+      <p class="note">Pose logs recorded on the robot (<code>pose_log.hpp</code>). Drop one anywhere on the page: <code>plogNNN.csv</code> from the brain's SD card, or a saved <code>pros terminal</code> output. Or paste the terminal text here:</p>
+      <textarea id="botPaste" rows="3" spellcheck="false" placeholder="#POSELOG BEGIN ... #POSELOG END" aria-label="Paste a pose log"></textarea>
+      <div class="actions"><button id="btnBotPaste" class="btn" type="button">Add pasted log</button></div>
+      <ul class="paths" id="botRuns"></ul>
+      <table class="readout botstats" id="botStats"></table>
+      <div class="actions" id="botActions" hidden>
+        <button id="btnBotFit" class="btn" type="button" title="Set Real-life speed and Motor response from this run, so the sim moves like the robot">Fit sim to run</button>
+        <button id="btnBotCopy" class="btn primary" type="button" title="Markdown summary of this run vs the sim, to paste to Claude">Copy report for Claude</button>
+        <button id="btnBotSave" class="btn" type="button">Download report</button>
+      </div>
+      <p class="note" id="botMsg" role="status"></p>
+      <p class="note">Solid line = where the robot's odometry says it went. Click a run to pick it; the outline robot follows the timeline. Load the same auton in Code so the sim matches.</p>
+    </details>
+
     </div>
 
     <div class="actions end">
@@ -343,6 +360,7 @@
 <script src="js/changelog.js"></script>
 <script src="js/sketch.js"></script>
 <script src="js/autotune.js"></script>
+<script src="js/tune.js"></script>
 <script src="js/pathtool.js"></script>
 <script src="js/app.js"></script>
 </body>

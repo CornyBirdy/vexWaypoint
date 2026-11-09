@@ -10,6 +10,10 @@
           "name": "Added",
           "items": [
             {
+              "text": "**Real runs tab: compare the real robot with the sim.** Drop a pose log from the robot (`plogNNN.csv` from the brain's SD card, or a saved `pros terminal` output with `#POSELOG BEGIN ... END`; from `pose_log.hpp` in Invictus-v2) anywhere on the page, or paste it. The field shows where the robot's odometry says it went, with an outline robot on the timeline, next to the simulated run. The tab lists how far it was from the sim, overshoot on drives and turns, and a drivetrain fit. **Fit sim to run** sets *Real-life speed* and *Motor response* from the log so the sim moves like your robot. **Copy report for Claude** copies a markdown report (per-motion overshoot, rise and settle times, real vs sim pose, the trajectory and the code) for Claude to tune the auton from.",
+              "sub": []
+            },
+            {
               "text": "**Open-loop driving is simulated.** Helpers that drive the motors directly (a `backUp()` that does `chassis.tank(-60, -60); pros::delay(500);`, a `driveToGoal()` that pushes into a goal) used to do nothing in the sim, so an auton built from them looked nothing like the real robot. `chassis.tank()`, `arcade()`, `curvature()` and the drivetrain's motor groups (`leftMotors.move()`, `move_voltage()`, `move_velocity()`, `brake()`, named from your `lemlib::Drivetrain` line) now move the robot until the next command, and `pros::delay()` makes them last. A LemLib motion that is running keeps the motors, so a `tank()` during it is ignored.",
               "sub": []
             },

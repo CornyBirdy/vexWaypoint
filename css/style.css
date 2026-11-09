@@ -330,3 +330,9 @@ textarea#genCode {
 }
 .actions.export #btnDownloadPath { flex: 1 1 100%; }
 .actions.export .btn:not(#btnDownloadPath) { flex: 1 1 0; }
+
+/* Real runs: real-robot pose logs */
+#botRuns:empty::after { content: "no runs yet: drop a pose log or paste one above"; }
+#botRuns .nm { cursor: pointer; }
+#botPaste { display: block; width: calc(100% - 2 * var(--s-3)); box-sizing: border-box; font-size: 12px; resize: vertical; }
+.readout.botstats th { width: 60px; vertical-align: top; }

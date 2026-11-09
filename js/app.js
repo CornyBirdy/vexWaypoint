@@ -262,6 +262,15 @@
       }
       const bytes = new Uint8Array(await f.arrayBuffer());
       const binary = bytes.subarray(0, 256).includes(0);
+      if (!binary) {
+        // pose logs from the robot (Real runs tab) are not path files
+        const text = new TextDecoder().decode(bytes);
+        if (V.Tune.isPoseLog(text)) {
+          V.Tune.addText(text, f.name);
+          showTab('real');
+          continue;
+        }
+      }
       const res = V.parsePathFile(f.name, binary ? bytes : new TextDecoder().decode(bytes));
       warn.push(...res.warnings);
       if (importEditable(res, f.name)) continue;
@@ -483,7 +492,7 @@
         trail = [];
         $('log').innerHTML = '';
         addLog('info', 'Draw a path: click the field where it should start, then where it should go. It runs here as you draw.');
-        $('scrub').max = '0';
+        updateScrubMax();
         simMs = 0;
         playing = false;
         syncPlayButton();
@@ -517,14 +526,14 @@
       }
       renderLog(logLines, res);
       recordRun(res, !!(opts.autoplay || opts.seed != null));
-      const scrub = $('scrub');
-      scrub.max = String(res.durationMs);
+      updateScrubMax();
       simMs = 0;
       playing = !!opts.autoplay && !!res.frames && res.durationMs > 0;
       lastTs = 0;
       updateLimitBadge();
       syncPlayButton();
       updateExport();
+      V.Tune.refresh();
       requestDraw();
       save();
     } finally {
@@ -572,6 +581,14 @@
       why(i, m.auto ? 'Worked out from the motors and the weight. Untick "work out the real-life speed" above to type it in.' : '');
     });
     $('motorInfo').textContent = m.auto ? V.describeMotors(S.robot, S.chassis) : 'Off: the real-life speed and motor response typed above are used.';
+  }
+
+  /** timeline length: the sim, or a longer real-robot log in the Real runs tab */
+  function totalMs() {
+    return Math.max(result && result.frames ? result.durationMs : 0, V.Tune.maxDuration());
+  }
+  function updateScrubMax() {
+    $('scrub').max = String(totalMs());
   }
 
   function settingsChanged() {
@@ -687,11 +704,11 @@
 
   function frame(ts) {
     drawQueued = false;
-    if (playing && result && result.frames) {
+    if (playing && totalMs() > 0) {
       if (lastTs) simMs += (ts - lastTs) * parseFloat($('speed').value);
       lastTs = ts;
-      if (simMs >= result.durationMs) {
-        simMs = result.durationMs;
+      if (simMs >= totalMs()) {
+        simMs = totalMs();
         playing = false;
         syncPlayButton();
       }
@@ -711,6 +728,7 @@
         ? pathPreview() ? { x: 0, y: 0, h: 0 } : { x: startFrame().px, y: startFrame().py, h: (startFrame().psi * 180) / Math.PI }
         : null,
       aligners: hasAligners() ? S.aligners : null,
+      logs: V.Tune.drawState(simMs, codeToField, (startFrame().psi * 180) / Math.PI),
     };
     const goals = worldOn() ? currentGoals() : [];
     if (f) {
@@ -961,6 +979,26 @@
     });
     if (saved && saved.project) V.PathTool.load(saved.project);
     else if (!saved) loadExamplePath();
+    V.Tune.init({
+      $,
+      log: addLog,
+      requestDraw,
+      durationChanged: updateScrubMax,
+      result: () => result,
+      settings: () => S,
+      code: () => $('code').value,
+      routine: () => (compiled && compiled.routine) || '',
+      applyRobot: (r) => {
+        // measured beats modelled: switch off the motor model so it doesn't overwrite these
+        const wasAuto = !!(S.robot.motor && S.robot.motor.auto);
+        if (S.robot.motor) S.robot.motor.auto = false;
+        Object.assign(S.robot, r);
+        pushSettingsToUi();
+        updateMotorUi();
+        settingsChanged();
+        return wasAuto;
+      },
+    });
     renderer.onImageLoad = requestDraw;
     window.addEventListener('vsim-theme', () => {
       drawChassis();
@@ -1201,7 +1239,7 @@
       } else if (!typing && e.key === 'Home') {
         $('btnRestart').click();
       } else if (!typing && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
-        simMs = Math.max(0, Math.min(result ? result.durationMs : 0, simMs + (e.key === 'ArrowRight' ? 100 : -100)));
+        simMs = Math.max(0, Math.min(totalMs(), simMs + (e.key === 'ArrowRight' ? 100 : -100)));
         playing = false;
         syncPlayButton();
         requestDraw();
@@ -1403,6 +1441,13 @@
 
   // ------------------------------------------------------------------ settings tabs
 
+  /** switch to a settings tab (unless Everything is showing) */
+  function showTab(name) {
+    if (document.querySelector('#tabs .tab.on[data-tab="all"]')) return;
+    const t = document.querySelector(`#tabs .tab[data-tab="${name}"]`);
+    if (t) t.click();
+  }
+
   function initTabs() {
     const bar = $('tabs');
     if (!bar) return;
@@ -1589,8 +1634,8 @@
   }
 
   function togglePlay() {
-    if (!result || !result.frames) return;
-    if (!playing && simMs >= result.durationMs) simMs = 0;
+    if (totalMs() <= 0) return;
+    if (!playing && simMs >= totalMs()) simMs = 0;
     playing = !playing;
     lastTs = 0;
     syncPlayButton();
