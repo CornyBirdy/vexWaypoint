@@ -131,6 +131,7 @@
       this.dist = 0; // inches (lateral) or degrees (turns), for waitUntil()
       this.finished = false;
       this.reason = '';
+      this.stopAtEnd = true; // false: the motors keep their last command (JAR-Template, RW chaining)
       this.id = -1;
       this.t0 = ch.clock.now;
       this.t1 = null;
@@ -643,6 +644,52 @@
     drive(l, r) {
       this.robot.cmdL = clamp(l, -127, 127);
       this.robot.cmdR = clamp(r, -127, 127);
+      this.rawPos = null;
+    }
+    /** motor voltages (-12..12 V), as VEXcode / JAR-Template / RW-Template use them */
+    driveVolts(l, r) {
+      this.drive((l * 127) / 12, (r * 127) / 12);
+    }
+    /** heading in degrees in the code frame, not wrapped (like an IMU's rotation) */
+    rotationDeg() {
+      return this.poseRad().t * R2D;
+    }
+
+    // ----- motors commanded directly (PROS motor groups, VEXcode motors)
+    /** set one side's power (-127..127) when no motion is driving */
+    rawPower(side, cmd) {
+      if (this.motion) return;
+      if (this.rawPos) delete this.rawPos[side];
+      if (side === 'L') this.robot.cmdL = clamp(cmd, -127, 127);
+      else this.robot.cmdR = clamp(cmd, -127, 127);
+    }
+    /** drive one side to a wheel position (inches of wheel travel) at up to `speed` (0..127) */
+    rawTarget(side, inches, speed) {
+      if (this.motion) return;
+      this.rawPos = this.rawPos || {};
+      this.rawPos[side] = { target: inches, speed: Math.abs(speed) || 127 };
+    }
+    rawBusy(side) {
+      return !!(this.rawPos && this.rawPos[side]);
+    }
+    stepRaw() {
+      if (!this.rawPos) return;
+      const r = this.robot;
+      for (const side of ['L', 'R']) {
+        const t = this.rawPos[side];
+        if (!t) continue;
+        const pos = side === 'L' ? r.sL : r.sR;
+        const err = t.target - pos;
+        // the motor's own position PID, roughly: full speed, then slow down over the last few inches
+        let cmd = clamp(err * 25, -t.speed, t.speed);
+        if (Math.abs(err) < 0.1) {
+          cmd = 0;
+          delete this.rawPos[side];
+        }
+        if (side === 'L') r.cmdL = cmd;
+        else r.cmdR = cmd;
+      }
+      if (!this.rawPos.L && !this.rawPos.R) this.rawPos = null;
     }
 
     // ----- scheduler hooks
@@ -652,16 +699,18 @@
         const m = this.motion;
         const why = m.step();
         if (why) this.endMotion(m, why);
-      }
+      } else this.stepRaw();
     }
     endMotion(m, why) {
       m.finish(why);
+      if (m.onEnd) m.onEnd(why);
       if (this.hooks.motionEnd) this.hooks.motionEnd(m);
       this.motion = null;
       this.aim = null;
       // like LemLib, every motion stops the drivetrain when it ends (a chained next motion
-      // immediately drives it again, so the robot keeps most of its speed)
-      this.drive(0, 0);
+      // immediately drives it again, so the robot keeps most of its speed). Motions that leave
+      // the motors running (JAR-Template, RW-Template with exit = false) say so with stopAtEnd.
+      if (m.stopAtEnd !== false) this.drive(0, 0);
       const w = this.idleWaiters;
       this.idleWaiters = [];
       w.forEach((r) => r());
@@ -796,6 +845,8 @@
     PID,
     ExitCondition,
     Chassis,
+    Motion,
+    fmt,
     DEFAULT_LATERAL: {
       kP: 10, kI: 0, kD: 3, antiWindup: 3,
       smallError: 1, smallErrorTimeout: 100, largeError: 3, largeErrorTimeout: 500, slew: 20,

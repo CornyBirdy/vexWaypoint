@@ -63,6 +63,9 @@
       this.cmdL = 0;
       this.cmdR = 0;
       this.touching = false;
+      this.sL = 0; // wheel travel (inches, like a drive encoder)
+      this.sR = 0;
+      this.traveled = 0; // path length driven (inches)
     }
     /** max wheel surface speed in inches / second */
     get vmax() {
@@ -76,13 +79,18 @@
       for (let i = 0; i < SUBSTEPS; i++) {
         this.vL += ((this.cmdL / 127) * this.vmax - this.vL) * alpha;
         this.vR += ((this.cmdR / 127) * this.vmax - this.vR) * alpha;
+        this.sL += this.vL * dt;
+        this.sR += this.vR * dt;
         const v = (this.vL + this.vR) / 2;
         const w = (this.vL - this.vR) / p.trackWidth; // rad/s, clockwise positive
         const hm = this.h + (w * dt) / 2;
+        const px = this.x;
+        const py = this.y;
         this.x += Math.sin(hm) * v * dt;
         this.y += Math.cos(hm) * v * dt;
         this.h += w * dt;
         this.collideWalls();
+        this.traveled += Math.hypot(this.x - px, this.y - py);
       }
     }
     collideWalls() {
@@ -188,15 +196,35 @@
       cancelMotion: () => ch.cancelMotion(),
       cancelAllMotions: () => ch.cancelAllMotions(),
       isInMotion: () => ch.isInMotion(),
-      // drivetrain-only sim: manual driving calls do nothing
-      tank: () => {},
-      arcade: () => {},
-      curvature: () => {},
+      // driving the motors directly (when no motion is running)
+      tank: (l, r) => {
+        ch.rawPower('L', l);
+        ch.rawPower('R', r);
+      },
+      arcade: (throttle, turn) => {
+        let l = throttle + turn;
+        let r = throttle - turn;
+        const big = Math.max(Math.abs(l), Math.abs(r), 127) / 127;
+        ch.rawPower('L', l / big);
+        ch.rawPower('R', r / big);
+      },
+      curvature: (throttle, curv) => api.arcade(throttle, throttle === 0 ? curv : Math.abs(throttle) * curv / 127),
     };
+    // JAR-Template's Drive (snake_case methods and public members such as drive_max_voltage)
+    const jarState = Object.assign({}, NS.JAR_DEFAULTS, opts && opts.jar);
+    Object.assign(api, NS.makeJarApi(ch, jarState));
     // anything else on chassis (e.g. setBrakeMode variants) is ignored
     const chassisObj = new Proxy(api, {
-      get: (t, k) => (k in t ? t[k] : k === 'then' ? undefined : NOOP),
+      get: (t, k) => (k in t ? t[k] : k in jarState ? jarState[k] : k === 'then' ? undefined : NOOP),
+      set: (t, k, v) => {
+        if (k in jarState) jarState[k] = v;
+        return true;
+      },
     });
+
+    // RW-Template's free functions and settings
+    const rwSettings = Object.assign({}, NS.RW_DEFAULTS, opts && opts.rw);
+    const RW = NS.makeRwApi(ch, rwSettings, { log });
 
     const scope = {
       NOOP,
@@ -206,8 +234,8 @@
       // `while (cond) {...}` waiting on something that is not simulated (lift, claw): give up after a while
       __loopStart: (cond) => ({ t0: clock.now, cond, warned: false }),
       __stuck: (w) => {
-        if (/millis|isInMotion|waitUntil/.test(w.cond)) return false; // real waits on time / the drivetrain
-        if (ch.motion) {
+        if (/millis|isInMotion|isMotionRunning|waitUntil|get_position|position\s*\(|isDone|isSpinning|time\s*\(/.test(w.cond)) return false; // real waits on time / the drivetrain
+        if (ch.motion || ch.rawPos) {
           w.t0 = clock.now;
           return false;
         }
@@ -242,6 +270,55 @@
       AUTO: 'AUTO', CW_CLOCKWISE: 'CW_CLOCKWISE', CCW_COUNTERCLOCKWISE: 'CCW_COUNTERCLOCKWISE',
       LEFT: 'LEFT', RIGHT: 'RIGHT',
     };
+    Object.assign(scope, {
+      // VEXcode / PROS time and units
+      wait: (t, unit) => clock.sleep(unit === 'sec' ? t * 1000 : unit === 'usec' ? t / 1000 : t),
+      sleep: (ms) => clock.sleep(ms),
+      sleep_for: (ms) => clock.sleep(ms),
+      task_delay: (ms) => clock.sleep(ms),
+      msec: 'msec', sec: 'sec', seconds: 'sec', usec: 'usec',
+      fwd: 'fwd', forward: 'fwd', reverse: 'reverse',
+      volt: 'volt', voltageUnits: { volt: 'volt', mV: 'mV' }, mV: 'mV',
+      pct: 'pct', percent: 'pct', velocityUnits: { pct: 'pct', rpm: 'rpm' }, rpm: 'rpm', dps: 'dps',
+      deg: 'deg', degrees: 'deg', rev: 'rev', turns: 'rev', raw: 'raw',
+      hold: 'hold', coast: 'coast', brake: 'brake',
+      // JAR-Template's constant presets (a definition in your own code replaces these)
+      default_constants: () => Object.assign(jarState, {
+        drive_max_voltage: 10, drive_kp: 1.5, drive_ki: 0, drive_kd: 10, drive_starti: 0,
+        heading_max_voltage: 6, heading_kp: 0.4, heading_ki: 0, heading_kd: 1, heading_starti: 0,
+        turn_max_voltage: 12, turn_kp: 0.4, turn_ki: 0.03, turn_kd: 3, turn_starti: 15,
+        swing_max_voltage: 12, swing_kp: 0.3, swing_ki: 0.001, swing_kd: 2, swing_starti: 15,
+        drive_settle_error: 1.5, drive_settle_time: 300, drive_timeout: 5000,
+        turn_settle_error: 1, turn_settle_time: 300, turn_timeout: 3000,
+        swing_settle_error: 1, swing_settle_time: 300, swing_timeout: 3000,
+      }),
+      odom_constants: () => {
+        scope.default_constants();
+        Object.assign(jarState, { heading_max_voltage: 10, drive_max_voltage: 8, drive_settle_error: 3, boomerang_lead: 0.5, drive_min_voltage: 0 });
+      },
+      // RW-Template
+      ...RW.api,
+      __rw: RW.asyncApi,
+      clockwise: 'clockwise',
+      counterclockwise: 'counterclockwise',
+      shortest: 'shortest',
+      TurnDirection: { clockwise: 'clockwise', counterclockwise: 'counterclockwise', shortest: 'shortest' },
+    });
+    const rwState = RW.rw;
+    scope.__busy = () => rwState.asyncRunning || !!ch.rawPos;
+    Object.defineProperty(scope, 'correct_angle', { get: () => rwState.correct_angle, set: (v) => (rwState.correct_angle = v), enumerable: true });
+    Object.defineProperty(scope, 'x_pos', { get: () => ch.poseRad().x, set: () => {}, enumerable: true });
+    Object.defineProperty(scope, 'y_pos', { get: () => ch.poseRad().y, set: () => {}, enumerable: true });
+    Object.defineProperty(scope, 'motion_running', { get: () => rwState.motion_running || rwState.asyncRunning, set: () => {}, enumerable: true });
+    Object.keys(rwSettings).forEach((k) =>
+      Object.defineProperty(scope, k, { get: () => rwSettings[k], set: (v) => (rwSettings[k] = v), enumerable: true })
+    );
+
+    // drive motors used directly (PROS motor groups, VEXcode motors)
+    ((opts && opts.motors) || []).forEach((mo) => {
+      scope[mo.name] = NS.motorProxy(NS.makeMotor(ch, mo.name, mo.side, mo.gearRpm || 200, clock, log), NOOP);
+    });
+
     chassisNames.forEach((n) => (scope[n] = chassisObj));
     Object.keys(pathLib).forEach((id) => (scope[id] = pathLib[id]));
 
@@ -351,7 +428,7 @@
     });
 
     const names = o.chassisNames && o.chassisNames.length ? o.chassisNames : ['chassis'];
-    const scope = buildScope(ch, clock, lib, names, log, { mechanismWaitMs: o.mechanismWaitMs });
+    const scope = buildScope(ch, clock, lib, names, log, { mechanismWaitMs: o.mechanismWaitMs, motors: o.motors, rw: o.rw, jar: o.jar });
 
     const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
     let fn;
@@ -404,12 +481,20 @@
     for (;;) {
       clock.wake();
       await macro();
-      if (codeDone && !ch.motion) break;
+      if (codeDone && !ch.motion && !scope.__busy()) break;
       if (clock.now >= o.maxMs) {
         log('warn', `Stopped: simulation ran for ${o.maxMs / 1000} s without finishing`);
         break;
       }
+      const before = ch.motion;
       ch.step();
+      if (before && !ch.motion) {
+        // A motion just ended. On the robot a queued (chained) motion takes over the drivetrain at
+        // once, so let the waiting code start it and run its first pass in this same tick instead of
+        // coasting for 10 ms with the motors at 0.
+        await macro();
+        if (ch.motion && ch.motion !== before) ch.step();
+      }
       robot.step(TICK_MS);
       clock.now += TICK_MS;
       record();

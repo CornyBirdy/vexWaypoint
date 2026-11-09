@@ -304,6 +304,7 @@
       const logLines = [];
       c.warnings.forEach((w) => logLines.push(['warn', w]));
       if (S.lang === 'cpp' && c.routine) logLines.push(['info', `Running ${c.routine}()` + (c.ignored.length ? `  (ignored: ${c.ignored.join(', ')})` : '')]);
+      if (S.lang === 'cpp' && c.config.templates && c.config.templates.length) logLines.push(['info', 'Code style: ' + c.config.templates.join(', ')]);
       const editorIds = V.PathTool.ids();
       const missing = c.config.assets.filter((a) => !paths.some((p) => p.id === a || p.aliases.includes(a)) && !editorIds.includes(a));
       missing.forEach((a) => logLines.push(['warn', `ASSET(${a}): no matching path file loaded`]));
@@ -322,6 +323,8 @@
           endIdx: p.endIdx,
         })).concat(V.PathTool.runPaths()),
         chassisNames: ['chassis', c.config.chassisName],
+        motors: c.config.motors,
+        rw: c.config.rw,
         mechanismWaitMs: S.cfg.mechanismWait,
         maxMs: 120000,
       });
@@ -626,8 +629,32 @@
       });
       notes.push(`${k} gains`);
     });
+    // JAR-Template: Drive chassis(..., wheel_diameter, wheel_ratio, ...) + the motors' cartridge
+    const jd = c.config.jarDrive;
+    if (jd && jd.wheelDiameter) {
+      S.robot.wheelDiameter = jd.wheelDiameter;
+      notes.push(`wheel ${jd.wheelDiameter} in`);
+      const gear = (c.config.motors.find((m) => m.side === 'L') || {}).gearRpm;
+      if (gear && jd.wheelRatio) {
+        S.robot.rpm = Math.round(gear * jd.wheelRatio);
+        notes.push(`${S.robot.rpm} rpm`);
+      }
+    }
+    // RW-Template: distance_between_wheels, wheel_distance_in (= ratio * diameter * pi), drive_motor_rpm
+    const rw = c.config.rw || {};
+    if (rw.distance_between_wheels) {
+      S.robot.trackWidth = rw.distance_between_wheels;
+      notes.push(`track ${rw.distance_between_wheels} in`);
+    }
+    if (rw.wheel_distance_in) {
+      // top speed = motor rpm / 60 * wheel_distance_in; the sim's is wheel rpm / 60 * pi * diameter
+      const rpm = rw.drive_motor_rpm || (c.config.motors.find((m) => m.side === 'L') || {}).gearRpm || 600;
+      S.robot.wheelDiameter = Math.round((rw.wheel_distance_in / Math.PI) * 1000) / 1000;
+      S.robot.rpm = rpm;
+      notes.push(`wheel_distance_in ${rw.wheel_distance_in.toFixed(2)} in at ${rpm} rpm`);
+    }
     if (!notes.length) {
-      addLog('warn', 'Nothing to import: no lemlib::Drivetrain or lemlib::ControllerSettings found in the code.');
+      addLog('warn', 'Nothing to import: no lemlib::Drivetrain / ControllerSettings, JAR-Template Drive or RW-Template settings found in the code.');
       return;
     }
     addLog('info', 'Imported: ' + notes.join(', '));
