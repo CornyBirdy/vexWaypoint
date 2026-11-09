@@ -27,7 +27,7 @@
   const wrap360 = (a) => ((a % 360) + 360) % 360;
 
   function emptySet(on) {
-    return { on, shapes: [], thickness: 0.25, material: 'polycarbonate', tol: 0.5, auto: true, point: { x: 0, y: 0 } };
+    return { on, shapes: [], thickness: 0.25, material: 'polycarbonate', tol: 0.5, auto: true, point: { x: 0, y: 0 }, preset: 'none', offset: 0, presetSig: '' };
   }
   const DEFAULT_ALIGNERS = { front: emptySet(false), back: emptySet(false) }; // off until you draw some
 
@@ -153,6 +153,9 @@
       tol: clamp(num(set.tol, base.tol), 0, 6),
       auto: set.auto !== false,
       point: { x: r3(num(set.point && set.point.x, 0)), y: r3(num(set.point && set.point.y, 0)) },
+      preset: PRESETS[set.preset] ? set.preset : 'none',
+      offset: clamp(num(set.offset, 0), -24, 24),
+      presetSig: typeof set.presetSig === 'string' ? set.presetSig : '',
     };
     return out;
   }
@@ -166,6 +169,55 @@
 
   /** the alignment point of a set as it is used: the auto one, or the one placed by hand */
   const pointOf = (set, side) => (set.auto ? autoPoint(set, side) : set.point);
+
+  // ---------------------------------------------------------------- presets
+
+  /**
+   * Ready-made aligners. Both are pockets that open away from the robot, so a goal nests in them; their
+   * deepest point sits on the drivetrain edge, moved by `offset` inches (+ = towards the robot's front).
+   */
+  const PRESETS = {
+    circle: { label: 'Circle, radius 3 in' },
+    triangle: { label: 'Triangle, base 6 in, height 3 in' },
+  };
+
+  /** the shapes of a preset for one side of a robot `length` inches long */
+  function presetShapes(kind, side, length, offset) {
+    const out = side === 'back' ? -1 : 1; // which way "away from the robot" is
+    const y0 = (out * (length || 15)) / 2 + (offset || 0); // the pocket's deepest point
+    if (kind === 'circle') {
+      // half a circle of radius 3: the bottom of the cup on the edge, the two tips 3 in further out
+      return [{ type: 'arc', cx: 0, cy: r3(y0 + 3 * out), r: 3, a0: out > 0 ? 180 : 0, sweep: 180 }];
+    }
+    if (kind === 'triangle') {
+      // a V: 6 in across the open side (the base), 3 in deep (the height)
+      return [
+        { type: 'line', x1: -3, y1: r3(y0 + 3 * out), x2: 0, y2: r3(y0) },
+        { type: 'line', x1: 3, y1: r3(y0 + 3 * out), x2: 0, y2: r3(y0) },
+      ];
+    }
+    return [];
+  }
+
+  /**
+   * Keep a set that uses a preset in step with it (after the robot length or the offset changed). If the
+   * shapes were edited by hand since the preset drew them, they become your own drawing (preset 'none').
+   * @returns {boolean} whether anything changed
+   */
+  function applyPreset(set, side, length) {
+    if (!set || !PRESETS[set.preset]) return false;
+    if (set.presetSig && JSON.stringify(set.shapes) !== set.presetSig) {
+      set.preset = 'none';
+      set.presetSig = '';
+      return true;
+    }
+    const shapes = presetShapes(set.preset, side, length, set.offset).map(sanitizeShape);
+    const sig = JSON.stringify(shapes);
+    if (sig === set.presetSig) return false;
+    set.shapes = shapes;
+    set.presetSig = sig;
+    return true;
+  }
 
   /** a V-shaped funnel, as a starting point: two 45 degree wings that meet at the middle */
   function exampleFunnel(p) {
@@ -182,6 +234,6 @@
     MATERIALS, ALIGNER_SIDES: SIDES, DEFAULT_ALIGNERS, emptyAlignerSet: emptySet,
     sanitizeAligners: sanitize, alignerPoint: pointOf, autoAlignerPoint: autoPoint, alignerSegments: segments,
     shapePolyline: polyline, shapeEnds: ends, shapeDimensions: dimensions, shapeDistance: distanceTo,
-    arcFromThree, exampleFunnel,
+    arcFromThree, exampleFunnel, ALIGNER_PRESETS: PRESETS, alignerPresetShapes: presetShapes, applyAlignerPreset: applyPreset,
   });
 })();

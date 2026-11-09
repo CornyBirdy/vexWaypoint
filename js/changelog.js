@@ -10,6 +10,18 @@
           "name": "Added",
           "items": [
             {
+              "text": "**Goal aligner presets.** Each side (front and back) has a *Preset*: **Circle, radius 3 in** (a half-circle cup) or **Triangle, base 6 in, height 3 in** (a V notch). Both open away from the robot so a goal nests in them, with the deepest point on the drivetrain edge. *Forward / back (in)* slides a preset along the robot. Presets follow the robot length; editing one in the sketch editor turns it into your own drawing.",
+              "sub": []
+            },
+            {
+              "text": "**JAR-Template and RW-Template autons run.** JAR-Template's `chassis.drive_distance`, `turn_to_angle`, swings, `turn_to_point`, `drive_to_point` and `drive_to_pose` (every overload, its PID, exit conditions, `drive_min_voltage` chaining and constants) and RW-Template's `driveTo`, `turnToAngle`, `turnToPoint`, `moveToPoint`, `boomerang`, `curveCircle`, `swing` (its PID, `exit = false` chaining, `runAsync`, the wait helpers, settings read from a pasted `robot-config.cpp`) are ported from their sources. RW's `driveProfiled`, `turnProfiled`, `followPath` and `followPathRamsete` are close approximations. VEXcode `wait(200, msec)` and `waitUntil(...)` work. The run log names the code style it found.",
+              "sub": []
+            },
+            {
+              "text": "**PROS and VEXcode drive motors driven directly.** `pros::MotorGroup` / `pros::Motor` (`move`, `move_voltage`, `move_velocity`, `move_relative`, `move_absolute`, `get_position`, `tare_position`) and VEXcode `motor` / `motor_group` (`spin`, `stop`, `spinFor`, `spinToPosition`, `position`) on the drive motors move the robot; the drive motors are found from your declarations. Each drive command shows in the run log.",
+              "sub": []
+            },
+            {
               "text": "**Real runs tab: compare the real robot with the sim.** Drop a pose log from the robot (`plogNNN.csv` from the brain's SD card, or a saved `pros terminal` output with `#POSELOG BEGIN ... END`; from `pose_log.hpp` in Invictus-v2) anywhere on the page, or paste it. The field shows where the robot's odometry says it went, with an outline robot on the timeline, next to the simulated run. The tab lists how far it was from the sim, overshoot on drives and turns, and a drivetrain fit. **Fit sim to run** sets *Real-life speed* and *Motor response* from the log so the sim moves like your robot. **Copy report for Claude** copies a markdown report (per-motion overshoot, rise and settle times, real vs sim pose, the trajectory and the code) for Claude to tune the auton from.",
               "sub": []
             },
@@ -204,6 +216,10 @@
           "name": "Removed",
           "items": [
             {
+              "text": "**Real-life error.** The panel (gyro drift, wheel slip, sliding, turn scrub, with its error-size multiplier), the odometry ghost and the random draws in *Auto-tune timeouts* are gone: the sim is always a perfect robot, and the \"Aligners and errors\" tab is now just \"Aligners\". Saved settings just drop it.",
+              "sub": []
+            },
+            {
               "text": "The last of the drawn field: its 24 unused colour tokens. Only the background behind the field photo is left.",
               "sub": []
             },
@@ -216,6 +232,10 @@
         {
           "name": "Fixed",
           "items": [
+            {
+              "text": "**Motion chaining lost speed.** When a motion exited early and the next one was waiting, the sim left the motors at 0 for a full 10 ms tick before the next motion started; on the robot the next motion takes over at once. Chained motions now hand over in the same tick.",
+              "sub": []
+            },
             {
               "text": "`printf(\"%.2f\")` lost its `f` (the translator treated it like the `2.0f` number suffix), so the number was never filled in. Text in quotes is now left alone, and `printf` handles flags and widths (`%+.2f`, `%05.1f`, `%-6d`).",
               "sub": []

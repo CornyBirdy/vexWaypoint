@@ -13,7 +13,6 @@
     cfg: { horizontalDrift: 2, pathMode: 'field', mechanismWait: 0, startFromCode: true, solidGoals: false },
     aligners: JSON.parse(JSON.stringify(V.DEFAULT_ALIGNERS)),
     goals: { ...V.GOAL_DEFAULTS },
-    real: { enabled: false, mult: 1 },
     chassis: JSON.parse(JSON.stringify(V.DEFAULT_CHASSIS)),
     lateral: { ...V.DEFAULT_LATERAL },
     angular: { ...V.DEFAULT_ANGULAR },
@@ -142,8 +141,6 @@
     });
     $('pathMode').value = S.cfg.pathMode;
     $('pathModeNote').innerHTML = PATH_MODE_NOTES[S.cfg.pathMode];
-    $('realOn').checked = !!S.real.enabled;
-    updateRealUi();
     updateSolidUi();
     $('startFromCode').checked = !!S.cfg.startFromCode;
     $('solidGoals').checked = !!S.cfg.solidGoals;
@@ -454,7 +451,8 @@
       robot: S.robot,
       // path preview: the robot stands on the path's start and the generated setPose() must not move the start pose box
       start: pv ? pv.pose : S.start,
-      realism: { enabled: S.real.enabled, seed, chassis: S.chassis, mult: S.real.mult },
+      // real-life error was removed: always a perfect robot (the chassis still sets up the motor model)
+      realism: { enabled: false, seed, chassis: S.chassis },
       world: worldOn() ? { goals: S.goals, aligners: S.aligners } : null,
       startFromSetPose: pv ? false : S.cfg.startFromCode,
       cfg: { lateral: S.lateral, angular: S.angular, trackWidth: S.robot.trackWidth, horizontalDrift: S.cfg.horizontalDrift, pathMode: pv ? 'field' : S.cfg.pathMode },
@@ -595,6 +593,7 @@
   }
 
   function settingsChanged() {
+    syncPresets();
     updateMotorUi();
     updateTopSpeed();
     drawChassis();
@@ -738,7 +737,6 @@
       state.pose = { x: f.x[idx], y: f.y[idx], h: f.h[idx] };
       state.hit = !!f.hit[idx];
       if ($('optTrail').checked) state.trail = trail.slice(0, idx + 1);
-      if ($('optOdom').checked && S.real.enabled && f.ox) state.odom = { x: f.ox[idx], y: f.oy[idx], h: f.oh[idx] };
       if (goals.length) {
         const al = { front: f.alF ? f.alF[idx] : -1, back: f.alB ? f.alB[idx] : -1 };
         const on = new Set([al.front, al.back]);
@@ -780,8 +778,7 @@
     }
     $('tTime').textContent = (f.t[idx] / 1000).toFixed(2);
     $('tField').textContent = `${f.x[idx].toFixed(1)}, ${f.y[idx].toFixed(1)}  ${norm360(f.h[idx]).toFixed(0)}°`;
-    const off = S.real.enabled ? `  (off by ${Math.hypot(f.ox[idx] - f.x[idx], f.oy[idx] - f.y[idx]).toFixed(1)} in, ${Math.abs(wrap180(f.oh[idx] - f.h[idx])).toFixed(1)}°)` : '';
-    $('tCode').textContent = `${f.cx[idx].toFixed(1)}, ${f.cy[idx].toFixed(1)}  ${f.ct[idx].toFixed(0)}°${off}`;
+    $('tCode').textContent = `${f.cx[idx].toFixed(1)}, ${f.cy[idx].toFixed(1)}  ${f.ct[idx].toFixed(0)}°`;
     const alText = ['front', 'back']
       .filter((k) => S.aligners[k].on && S.aligners[k].shapes.length)
       .map((k) => {
@@ -964,11 +961,10 @@
       S = merge(clone(DEFAULTS), saved.S);
       // the "drawn" field was removed; settings saved with it fall back to the match field
       if (S.fieldStyle !== 'photo-skills') S.fieldStyle = 'photo-match';
-      // the error sizes are no longer settings (they come from the chassis); only on / off is kept
-      S.real = { enabled: S.real.enabled === true, mult: Math.min(5, Math.max(0.1, Number(S.real.mult) || 1)) };
+      // real-life error was removed (settings saved with it just drop it)
+      delete S.real;
       // settings saved before the defaults changed: error and solid goals off, aligners off until something is drawn
       if (saved.S.defaultsV !== 2) {
-        S.real.enabled = false;
         S.cfg.solidGoals = false;
         ['front', 'back'].forEach((k) => {
           if (S.aligners[k] && !(S.aligners[k].shapes || []).length) S.aligners[k].on = false;
@@ -1205,6 +1201,7 @@
     $('optGoals').addEventListener('change', requestDraw);
     setInterval(renderRuns, 30000);
     renderAlignSummary();
+    syncPresets();
     chassisView = new V.ChassisView($('chassisCanvas'));
     chassisView.onToggle = (side, i) => {
       const list = S.chassis[side];
@@ -1241,18 +1238,7 @@
       pushSettingsToUi();
       settingsChanged();
     });
-    $('realOn').addEventListener('change', (e) => {
-      S.real.enabled = e.target.checked;
-      updateRealUi();
-      settingsChanged();
-    });
-    $('realMult').addEventListener('input', (e) => {
-      const n = parseFloat(e.target.value);
-      if (!isFinite(n)) return;
-      S.real.mult = Math.min(5, Math.max(0.1, n));
-      settingsChanged();
-    });
-    ['optTrail', 'optPaths', 'optAxes', 'optAim', 'optOdom'].forEach((id) => $(id).addEventListener('change', requestDraw));
+    ['optTrail', 'optPaths', 'optAxes', 'optAim'].forEach((id) => $(id).addEventListener('change', requestDraw));
 
     window.addEventListener('keydown', (e) => {
       const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
@@ -1299,19 +1285,74 @@
     why(box, forced ? 'Ticked and greyed out because goal aligners are on: they only work if the goals are solid. Turn the aligners off to untick this.' : '');
   }
 
-  function updateRealUi() {
-    const m = $('realMult');
-    if (!m) return;
-    m.value = S.real.mult;
-    m.disabled = !S.real.enabled;
-    why(m, S.real.enabled ? '' : 'Greyed out because "simulate real-life error" is off: tick it to set how big the errors are.');
-  }
-
   /** the solid goals at the sizes in the settings (rebuilt only when a size changes) */
   function currentGoals() {
     const key = JSON.stringify(S.goals);
     if (goalCache.key !== key) goalCache = { key, goals: V.buildGoals(S.goals) };
     return goalCache.goals;
+  }
+
+  /** aligner presets follow the robot length and their offset; hand-edited ones become a drawing */
+  function syncPresets() {
+    let changed = false;
+    ['front', 'back'].forEach((k) => {
+      if (V.applyAlignerPreset(S.aligners[k], k, S.robot.length)) changed = true;
+    });
+    if (changed) {
+      updateSolidUi();
+      renderAlignSummary();
+    }
+    renderPresetUi();
+  }
+
+  function renderPresetUi() {
+    const host = $('alignPresets');
+    if (!host) return;
+    if (!host.dataset.built) {
+      host.dataset.built = '1';
+      const opts = '<option value="none">None (draw your own)</option>' + Object.keys(V.ALIGNER_PRESETS).map((k) => `<option value="${k}">${esc(V.ALIGNER_PRESETS[k].label)}</option>`).join('');
+      host.innerHTML = ['front', 'back']
+        .map((k) => {
+          const K = k[0].toUpperCase() + k.slice(1);
+          return `<label class="field"><span>${K} preset</span><select data-preset="${k}">${opts}</select></label>` +
+            `<label class="field"><span>${K}: forward / back (in)</span><input type="number" step="0.25" min="-24" max="24" inputmode="decimal" data-offset="${k}"></label>`;
+        })
+        .join('');
+      host.querySelectorAll('[data-preset]').forEach((sel) =>
+        sel.addEventListener('change', () => {
+          const a = S.aligners[sel.dataset.preset];
+          const was = a.preset;
+          a.preset = sel.value;
+          a.presetSig = '';
+          if (a.preset !== 'none') a.on = true;
+          else if (was !== 'none') {
+            // back to drawing your own: the preset's shapes go
+            a.shapes = [];
+            a.on = false;
+          }
+          updateSolidUi();
+          renderAlignSummary();
+          settingsChanged();
+        })
+      );
+      host.querySelectorAll('[data-offset]').forEach((inp) =>
+        inp.addEventListener('input', () => {
+          const n = parseFloat(inp.value);
+          if (!isFinite(n)) return;
+          S.aligners[inp.dataset.offset].offset = Math.min(24, Math.max(-24, n));
+          settingsChanged();
+        })
+      );
+    }
+    ['front', 'back'].forEach((k) => {
+      const a = S.aligners[k];
+      const sel = host.querySelector(`[data-preset="${k}"]`);
+      const inp = host.querySelector(`[data-offset="${k}"]`);
+      sel.value = a.preset || 'none';
+      if (document.activeElement !== inp) inp.value = a.offset || 0;
+      inp.disabled = !V.ALIGNER_PRESETS[a.preset];
+      why(inp, inp.disabled ? 'Greyed out because this side has no preset: pick one to the left to move it.' : '');
+    });
   }
 
   function renderAlignSummary() {
@@ -1322,6 +1363,7 @@
         const a = S.aligners[k];
         if (!a.on) return `<div>${k}: off</div>`;
         const n = a.shapes.length;
+        if (V.ALIGNER_PRESETS[a.preset]) return `<div>${k}: ${esc(V.ALIGNER_PRESETS[a.preset].label.toLowerCase())}${a.offset ? `, moved ${Math.abs(a.offset)} in ${a.offset > 0 ? 'forward' : 'back'}` : ''}, aligned within ${a.tol} in</div>`;
         return `<div>${k}: ${n ? n + ' shape' + (n > 1 ? 's' : '') : 'nothing drawn yet'}, ${esc(V.MATERIALS[a.material].label.toLowerCase())}, aligned within ${a.tol} in</div>`;
       })
       .join('');
@@ -1413,7 +1455,7 @@
         }
         const num = (id, d) => (isFinite(parseFloat($(id).value)) ? parseFloat($(id).value) : d);
         const options = { pct: num('tunePct', 20), extraMs: num('tuneExtra', 150), alignMs: num('tuneAlign', 400), alignedMarginMs: num('tuneAligned', 200) };
-        const draws = S.real.enabled ? Math.max(1, Math.min(8, Math.round(num('tuneDraws', 3)))) : 1;
+        const draws = 1; // the sim is a perfect robot: one run measures it
         const base = runSeed == null ? 1 : runSeed;
         const seeds = Array.from({ length: draws }, (_, i) => base + i * 7919);
         $('tuneStatus').textContent = 'Measuring...';
@@ -1451,7 +1493,7 @@
       (gain > 50 ? ` (${(gain / 1000).toFixed(2)} s faster)` : gain < -50 ? ` (${(-gain / 1000).toFixed(2)} s slower)` : '') +
       `. ${lower} timeout${lower === 1 ? '' : 's'} lowered` +
       (raise ? `, ${raise} raised because the old one cut the motion off before it finished` : '') +
-      `. Checked against ${draws} random draw${draws > 1 ? 's' : ''} of the real-life error; each timeout is the longest any draw needed.`;
+      '.';
     const kinds = { blocked: 'hit something', aligned: 'aligned', finished: '', cancelled: 'left as is', unfinished: 'left as is', notrun: 'did not run' };
     const head = '<tr><th>Line</th><th>Call</th><th class="n">Your timeout</th><th class="n">Measured</th><th class="n">New timeout</th><th>Why</th></tr>';
     const rows = result.rows

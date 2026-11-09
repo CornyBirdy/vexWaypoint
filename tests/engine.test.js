@@ -615,6 +615,35 @@ const angDiff = (a, b) => Math.abs(normDeg(a - b));
     console.log('ok PROS / VEXcode motors');
   }
 
+  // --- aligner presets: circle r 3 and triangle 6 x 3, moved forward / back, hand edits keep the shapes
+  {
+    const sh = V.alignerPresetShapes('circle', 'front', 15, 0);
+    assert.strictEqual(sh.length, 1);
+    const pts = V.shapePolyline(sh[0]);
+    near(Math.min(...pts.map((p) => p.y)), 7.5, 0.01, 'circle cup bottom on the front edge');
+    near(Math.max(...pts.map((p) => p.y)), 10.5, 0.01, 'circle tips 3 in out');
+    near(Math.max(...pts.map((p) => Math.abs(p.x))), 3, 0.01, 'circle radius 3');
+    const tri = V.alignerPresetShapes('triangle', 'front', 15, 2);
+    const ys = tri.flatMap((l) => [l.y1, l.y2]);
+    near(Math.min(...ys), 9.5, 1e-9, 'triangle apex moved 2 in forward');
+    near(Math.max(...ys) - Math.min(...ys), 3, 1e-9, 'triangle height 3');
+    near(Math.max(...tri.flatMap((l) => [l.x1, l.x2])) - Math.min(...tri.flatMap((l) => [l.x1, l.x2])), 6, 1e-9, 'triangle base 6');
+    const back = V.alignerPresetShapes('triangle', 'back', 15, 0).flatMap((l) => [l.y1, l.y2]);
+    near(Math.max(...back), -7.5, 1e-9, 'back triangle apex on the back edge');
+    near(Math.min(...back), -10.5, 1e-9, 'back triangle opens backwards');
+    const set = V.sanitizeAligners({ front: { on: true, preset: 'triangle', offset: 1 } }).front;
+    assert(V.applyAlignerPreset(set, 'front', 15) && set.shapes.length === 2, 'preset draws its shapes');
+    assert(!V.applyAlignerPreset(set, 'front', 15), 'and leaves them alone when nothing changed');
+    set.offset = -1;
+    V.applyAlignerPreset(set, 'front', 15);
+    near(Math.min(...set.shapes.flatMap((l) => [l.y1, l.y2])), 6.5, 1e-9, 'moving the preset back');
+    set.shapes[0].x1 = -4; // edited by hand
+    V.applyAlignerPreset(set, 'front', 15);
+    assert.strictEqual(set.preset, 'none', 'a hand-edited preset becomes a drawing');
+    assert.strictEqual(set.shapes[0].x1, -4, 'and keeps the edit');
+    console.log('ok aligner presets');
+  }
+
   // --- errors surface, never hang
   t = await run(`void autonomous(){ while (true) { } }`);
   assert(t.res.events.some((e) => e.kind === 'error'), 'infinite loop reported');

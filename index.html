@@ -90,7 +90,6 @@
       <label class="check"><input type="checkbox" id="optPaths" checked> paths</label>
       <label class="check"><input type="checkbox" id="optAxes" checked> code axes</label>
       <label class="check"><input type="checkbox" id="optAim" checked> target</label>
-      <label class="check"><input type="checkbox" id="optOdom" checked> odometry ghost</label>
       <label class="check"><input type="checkbox" id="optGoals"> goal hitboxes</label>
     </div>
 
@@ -102,14 +101,14 @@
     <details class="sec">
       <summary>Run history <span class="aside" id="runCount"></span></summary>
       <ul id="runList" class="runs"></ul>
-      <p class="note">Every Run draws a new random robot. <b>Replay</b> runs one of these draws again with the current settings.</p>
+      <p class="note">Every Run is listed here. <b>Replay</b> runs it again with the current settings.</p>
     </details>
   </section>
 
   <aside class="panel">
     <nav class="tabs" id="tabs" role="tablist" aria-label="Settings">
       <button class="tab on" type="button" role="tab" data-tab="setup">Robot</button>
-      <button class="tab" type="button" role="tab" data-tab="aligners">Aligners and errors</button>
+      <button class="tab" type="button" role="tab" data-tab="aligners">Aligners</button>
       <button class="tab" type="button" role="tab" data-tab="paths">Paths</button>
       <button class="tab" type="button" role="tab" data-tab="code">Code</button>
       <button class="tab" type="button" role="tab" data-tab="real">Real runs</button>
@@ -152,24 +151,20 @@
     <details class="sec" data-tab="aligners" open>
       <summary>Goal aligners <span class="aside">hit the goals</span></summary>
       <label class="check realtoggle"><input type="checkbox" id="solidGoals"> goals and walls are solid (the robot hits them)</label>
-      <p class="note">Off by default. It switches itself on while any aligners are on, because aligners need solid goals to push against. This is separate from the real-life error below: a perfect robot can still hit a goal.</p>
+      <p class="note">Off by default. It switches itself on while any aligners are on, because aligners need solid goals to push against.</p>
       <div id="alignSummary" class="aligns"></div>
+      <h3>Presets</h3>
+      <div id="alignPresets" class="props"></div>
+      <p class="note">A preset puts a ready-made aligner on that side: a <b>circle</b> of radius 3 in (a half-circle cup) or a <b>triangle</b> with a 6 in base and 3 in height (a V notch). Both open away from the robot so the goal nests in them, with their deepest point on the drivetrain edge. <b>Forward / back</b> slides it along the robot: + moves it towards the front, &minus; towards the back. Editing a preset's shapes in the editor turns it into your own drawing.</p>
       <div class="actions">
         <button id="btnAlignFront" class="btn" type="button">Edit front aligners</button>
         <button id="btnAlignBack" class="btn" type="button">Edit back aligners</button>
       </div>
       <h3>Goal base, flat to flat (in)</h3>
       <div class="props" id="formGoals"></div>
-      <p class="note">The goals are screwed to the field, so they never move: the robot (its body and its aligners) is stopped by them, slides along them with friction and is turned by them. A goal counts as <b>aligned</b> when any part of it gets inside a small circle around the aligner's <b>alignment point</b> (the green diamond in the aligner editor). The circle's radius is <b>Aligned within (in)</b>: 0 means the goal must touch the point, a larger number is more forgiving. With real-life error on, the aligners grip a little harder and vary from run to run, so aligning is slightly less certain than in a perfect sim. The goal footprint is a square with cut-off corners, measured off the field picture (about 5.65 in across, corners cut by 1 in); you can change it here.</p>
+      <p class="note">The goals are screwed to the field, so they never move: the robot (its body and its aligners) is stopped by them, slides along them with friction and is turned by them. A goal counts as <b>aligned</b> when any part of it gets inside a small circle around the aligner's <b>alignment point</b> (the green diamond in the aligner editor). The circle's radius is <b>Aligned within (in)</b>: 0 means the goal must touch the point, a larger number is more forgiving. The goal footprint is a square with cut-off corners, measured off the field picture (about 5.65 in across, corners cut by 1 in); you can change it here.</p>
     </details>
 
-    <details class="sec" data-tab="aligners" open>
-      <summary>Real-life error <span class="aside">gyro drift + wheel slip</span></summary>
-      <label class="check realtoggle"><input type="checkbox" id="realOn"> simulate real-life error</label>
-      <label class="field"><span>Error size (x)</span><input type="number" id="realMult" step="0.1" min="0.1" max="5" inputmode="decimal" value="1"></label>
-      <p class="note">Error size scales every error at once: 1 is a typical robot, 2 is twice the gyro drift, noise and wheel slip with less grip (a worst case), 0.5 is half.</p>
-      <p class="note">On: every Run gives the robot a new random draw (its gyro has a bias, a turn-rate error and noise; the floor grip changes a little), so results vary from run to run like on a real field. How big the errors are comes from the Chassis above: traction wheels grip and slide less, tracking wheels keep the odometry right when the drive wheels slip. Changing a setting re-runs with the same draw. The odometry only sees the wheels and the gyro, so it slowly disagrees with where the robot really is. <code>setPose()</code> resets it, like a wall reset. Off (the default): a perfect robot, no odometry error and no slip.</p>
-    </details>
 
     <details class="sec" data-tab="paths" open>
       <summary>Paths</summary>
@@ -317,7 +312,6 @@
       <label class="field"><span>Plus (ms)</span><input id="tuneExtra" type="number" step="25" min="0" max="3000" value="150"></label>
       <label class="field"><span>Wait after hitting a wall or goal (ms)</span><input id="tuneAlign" type="number" step="50" min="0" max="5000" value="400"></label>
       <label class="field"><span>Wait after an aligner catches the goal (ms)</span><input id="tuneAligned" type="number" step="25" min="0" max="3000" value="200"></label>
-      <label class="field"><span>Random draws to check</span><input id="tuneDraws" type="number" step="1" min="1" max="8" value="3"></label>
     </div>
     <div class="actions"><button id="tuneRun" class="btn primary" type="button">Run auto-tune</button><span id="tuneStatus" class="note"></span></div>
     <div id="tuneOut" hidden>
