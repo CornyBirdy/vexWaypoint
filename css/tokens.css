@@ -1,7 +1,7 @@
 /* Rack Glass tokens. Every colour, radius, space and type size the app uses comes from here.
    Theme: dark by default, light when the OS asks for it, or when <html data-theme="light|dark"> forces one.
    Look: soft colour ground, frosted window and cards, big round shapes, one accent used as a gentle gradient on filled
-   controls only. Settings chosen by the owner: glass 100%, background gradient 50%, button gradient 45%, no solid blocks. */
+   controls only. Settings chosen by the owner: glass 100%, background gradient 50%, button gradient 15%, no solid blocks. */
 
 @font-face { font-family: "Plus Jakarta Sans"; font-style: normal; font-weight: 200 800; font-display: swap;
   src: url("../assets/fonts/plus-jakarta-sans-latin-wght-normal.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
@@ -66,7 +66,7 @@
   --sunken: oklch(0.12 0.03 var(--h) / 0.45);
   --edge: oklch(1 0 0 / 0.12);
   --a: oklch(0.78 0.14 var(--h));
-  --a-2: oklch(0.825 0.14 calc(var(--h) + 25));
+  --a-2: oklch(0.795 0.14 calc(var(--h) + 8));
   --on-a: oklch(0.2 0.03 270);
   --accent-text-c: oklch(0.86 0.1 var(--h));
   --shadow-c: oklch(0 0 0 / 0.5);
@@ -98,7 +98,7 @@
     --sunken: oklch(0.22 0.03 var(--h) / 0.06);
     --edge: oklch(1 0 0 / 0.85);
     --a: oklch(0.5 0.17 var(--h));
-    --a-2: oklch(0.5 0.17 calc(var(--h) + 25));
+    --a-2: oklch(0.5 0.17 calc(var(--h) + 8));
     --on-a: oklch(1 0 0);
     --accent-text-c: oklch(0.42 0.17 var(--h));
     --shadow-c: oklch(0.3 0.08 265 / 0.16);
@@ -128,7 +128,7 @@
   --sunken: oklch(0.22 0.03 var(--h) / 0.06);
   --edge: oklch(1 0 0 / 0.85);
   --a: oklch(0.5 0.17 var(--h));
-  --a-2: oklch(0.5 0.17 calc(var(--h) + 25));
+  --a-2: oklch(0.5 0.17 calc(var(--h) + 8));
   --on-a: oklch(1 0 0);
   --accent-text-c: oklch(0.42 0.17 var(--h));
   --shadow-c: oklch(0.3 0.08 265 / 0.16);
@@ -157,7 +157,7 @@
   --sunken: oklch(0.12 0.03 var(--h) / 0.45);
   --edge: oklch(1 0 0 / 0.12);
   --a: oklch(0.78 0.14 var(--h));
-  --a-2: oklch(0.825 0.14 calc(var(--h) + 25));
+  --a-2: oklch(0.795 0.14 calc(var(--h) + 8));
   --on-a: oklch(0.2 0.03 270);
   --accent-text-c: oklch(0.86 0.1 var(--h));
   --shadow-c: oklch(0 0 0 / 0.5);
@@ -179,8 +179,8 @@
     var(--ground-base);
   --accent-fill: linear-gradient(135deg, var(--a), var(--a-2));
   --a-soft: color-mix(in oklch, var(--a) 16%, transparent);
-  --glow: 0 10px 24px -10px color-mix(in oklch, var(--a) 45%, transparent);
-  --glow-lg: 0 16px 36px -16px color-mix(in oklch, var(--a) 45%, transparent);
+  --glow: 0 10px 24px -10px color-mix(in oklch, var(--a) 15%, transparent);
+  --glow-lg: 0 16px 36px -16px color-mix(in oklch, var(--a) 15%, transparent);
   --shadow-window: 0 18px 50px -14px var(--shadow-c), 0 2px 6px -2px var(--shadow-c);
   --shadow-card: 0 6px 24px -12px var(--shadow-c);
   --shadow-pop: 0 18px 44px -12px var(--shadow-c), 0 2px 8px -2px var(--shadow-c);
