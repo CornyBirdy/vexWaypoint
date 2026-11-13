@@ -7,6 +7,15 @@
       "title": "Unreleased",
       "sections": [
         {
+          "name": "Changed",
+          "items": [
+            {
+              "text": "**New look: Rack Glass.** Waypoint now sits on a soft violet colour background with frosted panels, much rounder corners and pill-shaped buttons. The Run button and selected tabs use a gentle violet gradient. Text is now Plus Jakarta Sans (code stays in JetBrains Mono), and both fonts ship with the app so it still works offline. Light and dark both follow the same style, and the field photo, path colours and overlays are unchanged.",
+              "sub": []
+            }
+          ]
+        },
+        {
           "name": "Added",
           "items": [
             {

@@ -6,6 +6,9 @@ grouped by date.
 
 ## Unreleased
 
+### Changed
+- **New look: Rack Glass.** Waypoint now sits on a soft violet colour background with frosted panels, much rounder corners and pill-shaped buttons. The Run button and selected tabs use a gentle violet gradient. Text is now Plus Jakarta Sans (code stays in JetBrains Mono), and both fonts ship with the app so it still works offline. Light and dark both follow the same style, and the field photo, path colours and overlays are unchanged.
+
 ### Added
 - **Goal aligner presets.** Each side (front and back) has a *Preset*: **Circle, radius 3 in** (a half-circle cup) or **Triangle, base 6 in, height 3 in** (a V notch). Both open away from the robot so a goal nests in them, with the deepest point on the drivetrain edge. *Forward / back (in)* slides a preset along the robot. Presets follow the robot length; editing one in the sketch editor turns it into your own drawing.
 - **JAR-Template and RW-Template autons run.** JAR-Template's `chassis.drive_distance`, `turn_to_angle`, swings, `turn_to_point`, `drive_to_point` and `drive_to_pose` (every overload, its PID, exit conditions, `drive_min_voltage` chaining and constants) and RW-Template's `driveTo`, `turnToAngle`, `turnToPoint`, `moveToPoint`, `boomerang`, `curveCircle`, `swing` (its PID, `exit = false` chaining, `runAsync`, the wait helpers, settings read from a pasted `robot-config.cpp`) are ported from their sources. RW's `driveProfiled`, `turnProfiled`, `followPath` and `followPathRamsete` are close approximations. VEXcode `wait(200, msec)` and `waitUntil(...)` work. The run log names the code style it found.

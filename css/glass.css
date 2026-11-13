@@ -1,0 +1,45 @@
+/* Rack Glass layer: ground, frosted panels, pill controls. Colours, radii and blur come from tokens.css. */
+body { background: var(--ground-base); }
+body::before { content: ""; position: fixed; inset: 0; z-index: -1; background: var(--ground-mesh); pointer-events: none; }
+.splash { background: var(--splash-bg); }
+
+/* top bar floats over the ground */
+.bar {
+  margin: var(--s-3) var(--s-3) 0; padding: var(--s-2) var(--s-4); gap: var(--s-3); flex-wrap: wrap;
+  background: var(--float); border: 1px solid var(--hair); border-radius: var(--r-lg); box-shadow: var(--shadow-card);
+  backdrop-filter: blur(var(--blur)) saturate(1.4); -webkit-backdrop-filter: blur(var(--blur)) saturate(1.4);
+}
+
+/* stage and settings sections are frosted cards */
+.stage {
+  padding: var(--s-3); background: var(--card); border: 1px solid var(--edge); border-radius: var(--r-lg); box-shadow: var(--shadow-card);
+  backdrop-filter: blur(var(--blur)) saturate(1.4); -webkit-backdrop-filter: blur(var(--blur)) saturate(1.4);
+  align-self: start;
+}
+.sec {
+  background: var(--card); border: 1px solid var(--edge); border-radius: var(--r-md); box-shadow: var(--shadow-card);
+  backdrop-filter: blur(var(--blur)) saturate(1.4); -webkit-backdrop-filter: blur(var(--blur)) saturate(1.4);
+}
+details.sub { border-color: var(--hair); border-radius: var(--r-sm); }
+.canvas-wrap, .chassiscv, #alignCanvas { border-radius: var(--r-md); border-color: var(--hair); }
+.speedwrap, .log, .tunetable { border-radius: var(--r-sm); border-color: var(--hair); }
+
+/* buttons are pills; the one main action and selected states use the accent gradient */
+.btn, .tab { border-radius: var(--r-pill); border-color: var(--hair); transition: background var(--dur-1) var(--ease), transform var(--dur-1) var(--ease); }
+.btn:hover { transform: translateY(-1px); }
+.btn.primary { background: var(--accent-fill); border-color: transparent; box-shadow: var(--glow); }
+.btn.primary:hover, .btn.primary:active { background: var(--accent-fill); filter: brightness(1.07); }
+.btn.on, .tab.on { background: var(--accent-fill); border-color: transparent; color: var(--on-accent); }
+.seg { padding: 3px; gap: 2px; align-items: center; background: var(--field); border: 1px solid var(--hair); border-radius: var(--r-pill); }
+.seg .btn, .seg .btn:first-child, .seg .btn:last-child { margin-left: 0; border: 0; border-radius: var(--r-pill); background: transparent; }
+.seg .btn.on { background: var(--accent-fill); color: var(--on-accent); }
+.tabs { padding: var(--s-1); border: 1px solid var(--hair); border-radius: var(--r-pill); background: var(--float);
+  backdrop-filter: blur(var(--blur)) saturate(1.4); -webkit-backdrop-filter: blur(var(--blur)) saturate(1.4); }
+.tabs .tab { border-color: transparent; background: transparent; }
+.tabs .tab.on { background: var(--accent-fill); }
+
+/* menus, dialogs and sheets are never see-through */
+.aligndlg, .tunedlg, .changelog { background: var(--solid); border: 1px solid var(--edge); border-radius: var(--r-xl); box-shadow: var(--shadow-pop); }
+dialog::backdrop { background: oklch(0 0 0 / 0.4); backdrop-filter: blur(6px); }
+.tunetable th { background: var(--solid); }
+.cl-rel { border-color: var(--hair); border-radius: var(--r-md); }
