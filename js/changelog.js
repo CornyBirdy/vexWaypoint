@@ -10,6 +10,10 @@
           "name": "Changed",
           "items": [
             {
+              "text": "**A flatter, quieter look.** The frosted glass, colour glows and gradients are gone. Surfaces are plain neutral greys (dark) or soft whites (light) in steps with thin outlines, the accent colour is used only for the main action and the current selection, buttons are a solid accent, and nothing bounces or lifts on hover any more. Layout, text and what each button does are unchanged.",
+              "sub": []
+            },
+            {
               "text": "**Smoother animations.** The settings tabs now slide the way you are going (to a tab on the right from the right, to one on the left from the left) and their sections arrive one after another. Buttons and tabs spring when pressed and dialogs spring in. Everything is off if your device asks for reduced motion.",
               "sub": []
             },

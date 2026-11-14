@@ -26,7 +26,7 @@ details.sub { border-color: var(--hair); border-radius: var(--r-sm); }
 
 /* buttons are pills; the one main action and selected states use the accent gradient */
 .btn, .tab { border-radius: var(--r-btn); border-color: var(--hair); transition: background var(--dur-1) var(--ease), transform var(--dur-1) var(--ease); }
-.btn:hover { transform: translateY(-1px); }
+.btn:hover { }
 .btn.primary { background: var(--accent-fill); border-color: transparent; box-shadow: var(--glow); }
 .btn.primary:hover, .btn.primary:active { background: var(--accent-fill); filter: brightness(1.07); }
 .btn.on, .tab.on { background: var(--accent-fill); border-color: transparent; color: var(--on-accent); }
@@ -77,3 +77,8 @@ dialog::backdrop { background: oklch(0 0 0 / 0.4); backdrop-filter: blur(6px); }
 .aligndlg, .tunedlg, .changelog { animation: popS .4s var(--spring); }
 .sec[open] > summary::before { transition: transform .25s var(--spring); }
 @media (prefers-reduced-motion: reduce) { #panes.tab-fwd, #panes.tab-back, #panes > .sec, .aligndlg, .tunedlg, .changelog { animation: none !important; } }
+
+/* ================= Flat: quiet chrome, one accent, no glass, glows or colour washes (unslop method) ================= */
+:root { --spring: cubic-bezier(0.2, 0.7, 0.2, 1); } /* one easing curve: nothing overshoots */
+*, *::before, *::after { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+.btn:hover, .btn.primary:hover { transform: none; }
