@@ -1521,7 +1521,16 @@
     const bar = $('tabs');
     if (!bar) return;
     const tabs = Array.from(bar.querySelectorAll('.tab'));
+    let shown = null;
     const show = (name) => {
+      // the settings slide the way you are going: to a tab on the right from the right, to one on the left from the left
+      const prev = shown ? tabs.findIndex((t) => t.dataset.tab === shown) : -1, next = tabs.findIndex((t) => t.dataset.tab === name);
+      const panes = document.getElementById('panes');
+      if (panes && prev >= 0 && prev !== next && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        panes.classList.remove('tab-fwd', 'tab-back'); void panes.offsetWidth; panes.classList.add(next > prev ? 'tab-fwd' : 'tab-back');
+        setTimeout(() => panes.classList.remove('tab-fwd', 'tab-back'), 500);
+      }
+      shown = name;
       tabs.forEach((t) => {
         t.classList.toggle('on', t.dataset.tab === name);
         t.setAttribute('aria-selected', String(t.dataset.tab === name));

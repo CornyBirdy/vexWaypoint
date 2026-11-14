@@ -10,6 +10,10 @@
           "name": "Changed",
           "items": [
             {
+              "text": "**Smoother animations.** The settings tabs now slide the way you are going (to a tab on the right from the right, to one on the left from the left) and their sections arrive one after another. Buttons and tabs spring when pressed and dialogs spring in. Everything is off if your device asks for reduced motion.",
+              "sub": []
+            },
+            {
               "text": "**Softer corners and a bigger run time.** The run time under the field is now a big light number with the spare time next to it, with the other readouts (field, code, speed, align, motion, cursor) in a tidy grid below. The playback controls sit in their own card. Corners are softer everywhere: cards are less round, buttons are rounded rectangles instead of pills, and the Path/Code switch and the settings tabs are a row of buttons with a raised selected one. Everything works the same as before.",
               "sub": []
             },

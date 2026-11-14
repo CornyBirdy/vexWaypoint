@@ -58,3 +58,22 @@ dialog::backdrop { background: oklch(0 0 0 / 0.4); backdrop-filter: blur(6px); }
 .transport { padding: var(--s-2) var(--s-3); background: var(--card); border: 1px solid var(--edge); border-radius: var(--r-lg); box-shadow: var(--shadow-card); }
 .tools { padding: var(--s-1) 0; }
 .viewopts { padding: 0 var(--s-1); }
+
+/* ================= Motion: tabs slide the way you are going, things spring ================= */
+:root { --spring: cubic-bezier(0.34, 1.4, 0.64, 1); }
+@keyframes tabFwd { from { opacity: 0; transform: translateX(26px); } }
+@keyframes tabBack { from { opacity: 0; transform: translateX(-26px); } }
+@keyframes popS { from { opacity: 0; transform: translateY(16px) scale(.96); } }
+@keyframes secIn { from { opacity: 0; transform: translateY(10px); } }
+#panes.tab-fwd { animation: tabFwd .32s var(--ease); }
+#panes.tab-back { animation: tabBack .32s var(--ease); }
+#panes.tab-fwd > .sec, #panes.tab-back > .sec { animation: secIn .4s var(--ease) both; }
+#panes.tab-fwd > .sec:nth-child(2), #panes.tab-back > .sec:nth-child(2) { animation-delay: 60ms; }
+#panes.tab-fwd > .sec:nth-child(3), #panes.tab-back > .sec:nth-child(3) { animation-delay: 120ms; }
+.btn, .tab { transition: background var(--dur-1) var(--ease), transform .15s var(--spring), box-shadow .2s; }
+.btn:not(:disabled):active, .tab:active { transform: scale(.94); }
+.btn.primary:not(:disabled):active { transform: scale(.95); }
+.readout #tTime { transition: color .2s; }
+.aligndlg, .tunedlg, .changelog { animation: popS .4s var(--spring); }
+.sec[open] > summary::before { transition: transform .25s var(--spring); }
+@media (prefers-reduced-motion: reduce) { #panes.tab-fwd, #panes.tab-back, #panes > .sec, .aligndlg, .tunedlg, .changelog { animation: none !important; } }
