@@ -25,15 +25,15 @@ details.sub { border-color: var(--hair); border-radius: var(--r-sm); }
 .speedwrap, .log, .tunetable { border-radius: var(--r-sm); border-color: var(--hair); }
 
 /* buttons are pills; the one main action and selected states use the accent gradient */
-.btn, .tab { border-radius: var(--r-pill); border-color: var(--hair); transition: background var(--dur-1) var(--ease), transform var(--dur-1) var(--ease); }
+.btn, .tab { border-radius: var(--r-btn); border-color: var(--hair); transition: background var(--dur-1) var(--ease), transform var(--dur-1) var(--ease); }
 .btn:hover { transform: translateY(-1px); }
 .btn.primary { background: var(--accent-fill); border-color: transparent; box-shadow: var(--glow); }
 .btn.primary:hover, .btn.primary:active { background: var(--accent-fill); filter: brightness(1.07); }
 .btn.on, .tab.on { background: var(--accent-fill); border-color: transparent; color: var(--on-accent); }
-.seg { padding: 3px; gap: 2px; align-items: center; background: var(--field); border: 1px solid var(--hair); border-radius: var(--r-pill); }
-.seg .btn, .seg .btn:first-child, .seg .btn:last-child { margin-left: 0; border: 0; border-radius: var(--r-pill); background: transparent; }
+.seg { padding: 3px; gap: 2px; align-items: center; background: var(--field); border: 1px solid var(--hair); border-radius: var(--r-md); }
+.seg .btn, .seg .btn:first-child, .seg .btn:last-child { margin-left: 0; border: 0; border-radius: var(--r-sm); background: transparent; }
 .seg .btn.on { background: var(--accent-fill); color: var(--on-accent); }
-.tabs { padding: var(--s-1); border: 1px solid var(--hair); border-radius: var(--r-pill); background: var(--float);
+.tabs { padding: var(--s-1); border: 1px solid var(--hair); border-radius: var(--r-md); background: var(--float);
   backdrop-filter: blur(var(--blur)) saturate(1.4); -webkit-backdrop-filter: blur(var(--blur)) saturate(1.4); }
 .tabs .tab { border-color: transparent; background: transparent; }
 .tabs .tab.on { background: var(--accent-fill); }
@@ -43,3 +43,18 @@ details.sub { border-color: var(--hair); border-radius: var(--r-sm); }
 dialog::backdrop { background: oklch(0 0 0 / 0.4); backdrop-filter: blur(6px); }
 .tunetable th { background: var(--solid); }
 .cl-rel { border-color: var(--hair); border-radius: var(--r-md); }
+
+/* ================= Redesign: run time as the hero, card-style transport, tidier tool row ================= */
+.readout { display: block; width: 100%; padding: var(--s-4) var(--s-5); background: var(--card); border: 1px solid var(--edge); border-radius: var(--r-xl); box-shadow: var(--shadow-card);
+  backdrop-filter: blur(var(--blur)) saturate(1.4); -webkit-backdrop-filter: blur(var(--blur)) saturate(1.4); }
+.readout tbody { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-2) var(--s-5); }
+.readout tr, .readout th, .readout td { display: block; width: auto; padding: 0; }
+.readout th { font-size: 11.5px; font-weight: 600; color: var(--ink-muted); text-transform: none; letter-spacing: 0; }
+.readout td { font-size: 12.5px; overflow-wrap: anywhere; }
+.readout tr:first-child { grid-column: 1 / -1; padding-bottom: var(--s-2); margin-bottom: var(--s-1); border-bottom: 1px solid var(--hair); }
+.readout tr:first-child td { font-size: 14px; color: var(--ink-muted); }
+.readout #tTime { font: 300 54px/1.05 var(--font); letter-spacing: -0.04em; font-variant-numeric: tabular-nums; color: var(--ink); }
+.readout tr:last-child { grid-column: 1 / -1; }
+.transport { padding: var(--s-2) var(--s-3); background: var(--card); border: 1px solid var(--edge); border-radius: var(--r-lg); box-shadow: var(--shadow-card); }
+.tools { padding: var(--s-1) 0; }
+.viewopts { padding: 0 var(--s-1); }
