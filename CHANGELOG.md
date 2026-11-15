@@ -7,6 +7,7 @@ grouped by date.
 ## Unreleased
 
 ### Changed
+- **Glassy controls.** Buttons, pills, round icon buttons, the chosen item in switches and tabs, and floating bars now look like frosted acrylic: a translucent sheen, a lit top edge and a soft blur over whatever is behind them, in both dark and light. The main action is a glassy accent button.
 - **A new look, modelled on a fleet-dashboard design.** Near-black surfaces with a soft sheen, no outlines (shapes are told apart by fills), much bigger corners, light-weight Inter type with big thin numbers, and pill-shaped switches and tabs where the chosen item is a lighter pill. Layout and what each button does are unchanged.
 - **A flatter, quieter look.** The frosted glass, colour glows and gradients are gone. Surfaces are plain neutral greys (dark) or soft whites (light) in steps with thin outlines, the accent colour is used only for the main action and the current selection, buttons are a solid accent, and nothing bounces or lifts on hover any more. Layout, text and what each button does are unchanged.
 - **Smoother animations.** The settings tabs now slide the way you are going (to a tab on the right from the right, to one on the left from the left) and their sections arrive one after another. Buttons and tabs spring when pressed and dialogs spring in. Everything is off if your device asks for reduced motion.

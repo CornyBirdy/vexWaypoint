@@ -10,6 +10,10 @@
           "name": "Changed",
           "items": [
             {
+              "text": "**Glassy controls.** Buttons, pills, round icon buttons, the chosen item in switches and tabs, and floating bars now look like frosted acrylic: a translucent sheen, a lit top edge and a soft blur over whatever is behind them, in both dark and light. The main action is a glassy accent button.",
+              "sub": []
+            },
+            {
               "text": "**A new look, modelled on a fleet-dashboard design.** Near-black surfaces with a soft sheen, no outlines (shapes are told apart by fills), much bigger corners, light-weight Inter type with big thin numbers, and pill-shaped switches and tabs where the chosen item is a lighter pill. Layout and what each button does are unchanged.",
               "sub": []
             },

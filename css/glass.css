@@ -80,7 +80,6 @@ dialog::backdrop { background: oklch(0 0 0 / 0.4); backdrop-filter: blur(6px); }
 
 /* ================= Flat: quiet chrome, one accent, no glass, glows or colour washes (unslop method) ================= */
 :root { --spring: cubic-bezier(0.2, 0.7, 0.2, 1); } /* one easing curve: nothing overshoots */
-*, *::before, *::after { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
 .btn:hover, .btn.primary:hover { transform: none; }
 
 /* ================= Flatkey look: near-black ground, sheened surfaces with no outlines, light type, pill controls ================= */
@@ -96,3 +95,9 @@ input, select, textarea { background: var(--sunken); border-color: transparent; 
 .seg .btn, .seg .btn:first-child, .seg .btn:last-child { border-radius: 999px; }
 .readout #tTime { font-weight: 300; }
 .btn.on, .tab.on { background: var(--field); color: var(--ink); border-color: transparent; box-shadow: inset 0 1px 0 oklch(1 0 0 / .07), 0 1px 3px oklch(0 0 0 / .35); }
+
+/* ================= Glass controls ================= */
+.btn:where(:not(.primary)), .seg .btn.on, .tabs .tab.on { background: var(--g-fill), var(--field); box-shadow: var(--g-edge), var(--g-drop); -webkit-backdrop-filter: blur(var(--blur-ctl)) saturate(1.5); backdrop-filter: blur(var(--blur-ctl)) saturate(1.5); }
+.btn:where(:not(.primary)):hover, .seg .btn.on:hover, .tabs .tab.on:hover { background: var(--g-fill), var(--field) !important; filter: brightness(1.14); }
+.btn.primary { background: linear-gradient(160deg, color-mix(in oklch, var(--a) 100%, white 16%), color-mix(in oklch, var(--a) 100%, black 14%)); box-shadow: inset 0 1px 0 oklch(1 0 0 / .38), inset 0 -1px 0 oklch(0 0 0 / .14), 0 8px 18px -10px color-mix(in oklch, var(--a) 70%, black); }
+.seg .btn:not(.on), .tabs .tab:not(.on) { background: transparent; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; filter: none; }
